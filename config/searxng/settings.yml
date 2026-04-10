@@ -1,0 +1,35 @@
+use_default_settings: true
+
+server:
+  secret_key: "mts-ai-workspace-searxng-2026-hackathon-key"
+  bind_address: "0.0.0.0:8080"
+  limiter: false
+
+search:
+  safe_search: 0
+  autocomplete: ""
+  default_lang: "ru-RU"
+
+engines:
+  - name: google
+    engine: google
+    shortcut: g
+    disabled: false
+
+  - name: duckduckgo
+    engine: duckduckgo
+    shortcut: ddg
+    disabled: false
+
+  - name: wikipedia
+    engine: wikipedia
+    shortcut: wp
+    disabled: false
+
+  - name: bing
+    engine: bing
+    shortcut: bi
+    disabled: false
+
+general:
+  instance_name: "MTS AI Search"

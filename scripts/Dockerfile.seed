@@ -1,0 +1,12 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+RUN pip install --no-cache-dir httpx
+
+# Copy tools and functions from the project root (build context = project root)
+COPY tools/ /app/tools/
+COPY functions/ /app/functions/
+COPY scripts/seed_tools.py /app/seed_tools.py
+
+CMD ["python", "seed_tools.py"]
