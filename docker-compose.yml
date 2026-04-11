@@ -2,9 +2,13 @@
 services:
   # ============================================================
   # OpenWebUI — Main Chat Interface (port 8080)
+  # Pre-built image + our customizations on top
+  # For deep Svelte changes: build from ./open-webui source
   # ============================================================
   open-webui:
-    image: ghcr.io/open-webui/open-webui:main
+    build:
+      context: .
+      dockerfile: Dockerfile.openwebui
     container_name: mts-ai-workspace
     ports:
       - "8080:8080"
