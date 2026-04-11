@@ -1,70 +1,46 @@
-
 services:
-  # ============================================================
-  # OpenWebUI — Main Chat Interface (port 8080)
-  # ============================================================
   open-webui:
     image: ghcr.io/open-webui/open-webui:main
-    container_name: mts-ai-workspace
+    container_name: mts-ai-workspace-test
     ports:
-      - "8080:8080"
+      - "8081:8080"
     environment:
-      # --- MWS GPT API (OpenAI-compatible) ---
       - OPENAI_API_BASE_URL=https://api.gpt.mws.ru/v1
-      - OPENAI_API_KEY=${MWS_API_KEY}
-
-      # --- Ollama (for VLM — Moondream) ---
-      - OLLAMA_BASE_URL=http://ollama:11434
-
-      # --- RAG (embeddings via MWS bge-m3) ---
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OLLAMA_BASE_URL=http://ollama-shared:11434
       - RAG_EMBEDDING_ENGINE=openai
       - RAG_EMBEDDING_MODEL=bge-m3
-      - RAG_EMBEDDING_OPENAI_BATCH_SIZE=32
       - ENABLE_RAG_WEB_SEARCH=true
-      - RAG_WEB_SEARCH_ENGINE=searxng
-      - SEARXNG_QUERY_URL=http://searxng:8080/search?q=<query>&format=json
-
-      # --- Audio (STT via Whisper API) ---
+      - SEARXNG_QUERY_URL=http://searxng-shared:8080/search?q=<query>&format=json
       - AUDIO_STT_ENGINE=openai
-      - AUDIO_STT_OPENAI_API_BASE_URL=http://whisper-api:9000/v1
+      - AUDIO_STT_OPENAI_API_BASE_URL=http://whisper-shared:9000/v1
       - AUDIO_STT_OPENAI_API_KEY=dummy
-      - AUDIO_STT_MODEL=whisper-1
-
-      # --- Auth / UI ---
-      - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY:-supersecretkey123}
-      - WEBUI_AUTH=${WEBUI_AUTH:-true}
-      - ENABLE_SIGNUP=true
-
-      # --- PostgreSQL Database ---
-      - DATABASE_URL=postgresql://openwebui:openwebui_secret@postgres:5432/openwebui
-
+      - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY}
+      # ВАЖНО: здесь теперь postgres-test (имя сервиса ниже)
+      - DATABASE_URL=postgresql://openwebui:openwebui_secret@postgres-test:5432/openwebui
     volumes:
-      - open-webui-data:/app/backend/data
+      - open-webui-data-test:/app/backend/data
+    networks:
+      - mts-shared-net
     depends_on:
-      postgres:
+      postgres-test: # Тоже меняем здесь
         condition: service_healthy
-      ollama:
-        condition: service_started
-      searxng:
-        condition: service_started
-      whisper-api:
-        condition: service_started
     restart: unless-stopped
 
-  # ============================================================
-  # PostgreSQL — Database (port 5432)
-  # ============================================================
-  postgres:
+  # МЕНЯЕМ ИМЯ СЕРВИСА С "postgres" на "postgres-test"
+  postgres-test: 
     image: postgres:16-alpine
-    container_name: postgres
+    container_name: postgres-test
     environment:
       - POSTGRES_USER=openwebui
       - POSTGRES_PASSWORD=openwebui_secret
       - POSTGRES_DB=openwebui
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - postgres-data-test:/var/lib/postgresql/data
     ports:
-      - "5433:5432"
+      - "5434:5432"
+    networks:
+      - mts-shared-net
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U openwebui"]
@@ -72,61 +48,23 @@ services:
       timeout: 5s
       retries: 5
 
-  # ============================================================
-  # Ollama — Local VLM (Moondream 2B) (port 11434)
-  # ============================================================
-  ollama:
-    image: ollama/ollama:latest
-    container_name: ollama
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama-data:/root/.ollama
-    restart: unless-stopped
-
-  # ============================================================
-  # SearXNG — Self-hosted Meta Search Engine (port 8888)
-  # ============================================================
-  searxng:
-    image: searxng/searxng:latest
-    container_name: searxng
-    ports:
-      - "8888:8080"
-    volumes:
-      - ./config/searxng:/etc/searxng:rw
-    environment:
-      - SEARXNG_BASE_URL=http://localhost:8888
-    restart: unless-stopped
-
-  # ============================================================
-  # Whisper API — Speech-to-Text (port 9000)
-  # ============================================================
-  whisper-api:
-    build:
-      context: ./services/whisper
-      dockerfile: Dockerfile
-    container_name: whisper-api
-    ports:
-      - "9000:9000"
-    restart: unless-stopped
-
-  # ============================================================
-  # Seed Service — Auto-loads Tools/Functions on first run
-  # ============================================================
   seed:
     build:
       context: .
       dockerfile: scripts/Dockerfile.seed
-    container_name: seed
+    container_name: seed-test
     environment:
       - OPENWEBUI_URL=http://open-webui:8080
-      - WEBUI_AUTH=${WEBUI_AUTH:-true}
+    networks:
+      - mts-shared-net
     depends_on:
-      open-webui:
-        condition: service_started
+      - open-webui
     restart: "no"
 
+networks:
+  mts-shared-net:
+    external: true
+
 volumes:
-  open-webui-data:
-  ollama-data:
-  postgres-data:
+  open-webui-data-test:
+  postgres-data-test:
