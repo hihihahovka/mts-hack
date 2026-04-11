@@ -1,6 +1,6 @@
 # Environment variables
 .env
-.env.*
+!.env.example
 
 # Python
 __pycache__/
@@ -47,4 +47,4 @@ Icon
 .VolumeIcon.icns
 .com.apple.timemachine.donotpresent
 
-forKnowlege/
+forKnowlege/.env
