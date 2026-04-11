@@ -1,0 +1,6 @@
+# Расширяем готовый образ OpenWebUI нашими кастомизациями
+# Для глубоких изменений в Svelte-компонентах — билдить из исходников
+FROM ghcr.io/open-webui/open-webui:main
+
+# Копируем кастомную тему (будет доступна по /static/custom.css)
+# COPY themes/custom.css /app/build/static/custom.css
