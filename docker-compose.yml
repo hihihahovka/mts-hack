@@ -1,70 +1,110 @@
 services:
+  # ============================================================
+  # OpenWebUI — Main Chat Interface
+  # ============================================================
   open-webui:
-    image: ghcr.io/open-webui/open-webui:main
-    container_name: mts-ai-workspace-test
+    build:
+      context: .
+      dockerfile: Dockerfile.openwebui
+    container_name: mts-ai-workspace-${ENV_NAME:-local}
     ports:
-      - "8081:8080"
+      - "${WEBUI_PORT:-8080}:8080"
     environment:
       - OPENAI_API_BASE_URL=https://api.gpt.mws.ru/v1
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - OLLAMA_BASE_URL=http://ollama-shared:11434
+      - OPENAI_API_KEY=${MWS_API_KEY}
+      - OLLAMA_BASE_URL=http://ollama:11434
       - RAG_EMBEDDING_ENGINE=openai
       - RAG_EMBEDDING_MODEL=bge-m3
+      - RAG_EMBEDDING_OPENAI_BATCH_SIZE=32
       - ENABLE_RAG_WEB_SEARCH=true
-      - SEARXNG_QUERY_URL=http://searxng-shared:8080/search?q=<query>&format=json
+      - RAG_WEB_SEARCH_ENGINE=searxng
+      - SEARXNG_QUERY_URL=http://searxng:8080/search?q=<query>&format=json
       - AUDIO_STT_ENGINE=openai
-      - AUDIO_STT_OPENAI_API_BASE_URL=http://whisper-shared:9000/v1
+      - AUDIO_STT_OPENAI_API_BASE_URL=http://whisper-api:9000/v1
       - AUDIO_STT_OPENAI_API_KEY=dummy
-      - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY}
-      # ВАЖНО: здесь теперь postgres-test (имя сервиса ниже)
-      - DATABASE_URL=postgresql://openwebui:openwebui_secret@postgres-test:5432/openwebui
+      - AUDIO_STT_MODEL=whisper-1
+      - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY:-supersecretkey123}
+      - WEBUI_AUTH=${WEBUI_AUTH:-false}
+      - ENABLE_SIGNUP=true
     volumes:
-      - open-webui-data-test:/app/backend/data
-    networks:
-      - mts-shared-net
+      - open-webui-data-${ENV_NAME:-local}:/app/backend/data
     depends_on:
-      postgres-test: # Тоже меняем здесь
-        condition: service_healthy
-    restart: unless-stopped
-
-  # МЕНЯЕМ ИМЯ СЕРВИСА С "postgres" на "postgres-test"
-  postgres-test: 
-    image: postgres:16-alpine
-    container_name: postgres-test
-    environment:
-      - POSTGRES_USER=openwebui
-      - POSTGRES_PASSWORD=openwebui_secret
-      - POSTGRES_DB=openwebui
-    volumes:
-      - postgres-data-test:/var/lib/postgresql/data
-    ports:
-      - "5434:5432"
+      ollama:
+        condition: service_started
+      searxng:
+        condition: service_started
+      whisper-api:
+        condition: service_started
     networks:
-      - mts-shared-net
+      - mts-net-${ENV_NAME:-local}
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U openwebui"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
 
+  # ============================================================
+  # Ollama — Local VLM (Moondream 2B)
+  # ============================================================
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama-${ENV_NAME:-local}
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    volumes:
+      - ollama-data-${ENV_NAME:-local}:/root/.ollama
+    networks:
+      - mts-net-${ENV_NAME:-local}
+    restart: unless-stopped
+
+  # ============================================================
+  # SearXNG — Meta Search Engine
+  # ============================================================
+  searxng:
+    image: searxng/searxng:latest
+    container_name: searxng-${ENV_NAME:-local}
+    ports:
+      - "${SEARXNG_PORT:-8888}:8080"
+    volumes:
+      - ./config/searxng:/etc/searxng:rw
+    environment:
+      - SEARXNG_BASE_URL=http://localhost:8080
+    networks:
+      - mts-net-${ENV_NAME:-local}
+    restart: unless-stopped
+
+  # ============================================================
+  # Whisper API — Speech-to-Text
+  # ============================================================
+  whisper-api:
+    build:
+      context: ./services/whisper
+      dockerfile: Dockerfile
+    container_name: whisper-api-${ENV_NAME:-local}
+    ports:
+      - "${WHISPER_PORT:-9000}:9000"
+    networks:
+      - mts-net-${ENV_NAME:-local}
+    restart: unless-stopped
+
+  # ============================================================
+  # Seed Service — Auto-loads Tools/Functions
+  # ============================================================
   seed:
     build:
       context: .
       dockerfile: scripts/Dockerfile.seed
-    container_name: seed-test
+    container_name: seed-${ENV_NAME:-local}
     environment:
       - OPENWEBUI_URL=http://open-webui:8080
-    networks:
-      - mts-shared-net
+      - WEBUI_AUTH=${WEBUI_AUTH:-false}
     depends_on:
-      - open-webui
+      open-webui:
+        condition: service_started
+    networks:
+      - mts-net-${ENV_NAME:-local}
     restart: "no"
 
 networks:
-  mts-shared-net:
-    external: true
+  mts-net-${ENV_NAME:-local}:
+    driver: bridge
 
 volumes:
-  open-webui-data-test:
-  postgres-data-test:
+  open-webui-data-${ENV_NAME:-local}:
+  ollama-data-${ENV_NAME:-local}:

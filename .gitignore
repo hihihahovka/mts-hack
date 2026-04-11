@@ -47,4 +47,8 @@ Icon
 .VolumeIcon.icns
 .com.apple.timemachine.donotpresent
 
-forKnowlege/.env
+forKnowlege/
+.agents/
+.claude/
+docs/
+Ignore/
