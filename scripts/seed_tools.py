@@ -18,8 +18,8 @@ MAX_RETRIES = 60  # Wait up to 5 minutes for OpenWebUI to start
 RETRY_INTERVAL = 5  # seconds
 
 # Directory containing tool/function Python files (mounted from host)
-TOOLS_DIR = "/app/tools"
-FUNCTIONS_DIR = "/app/functions"
+TOOLS_DIR = os.getenv("TOOLS_DIR", "/app/tools")
+FUNCTIONS_DIR = os.getenv("FUNCTIONS_DIR", "/app/functions")
 
 
 def wait_for_openwebui():
@@ -97,8 +97,11 @@ def upload_tool(token: str, tool_id: str, name: str, description: str, filepath:
     payload = {
         "id": tool_id,
         "name": name,
-        "description": description,
         "content": content,
+        "meta": {
+            "name": name,
+            "description": description,
+        }
     }
 
     headers = {"Authorization": f"Bearer {token}"}
@@ -115,10 +118,10 @@ def upload_tool(token: str, tool_id: str, name: str, description: str, filepath:
             print(f"[seed] ✅ Tool '{name}' created")
             return True
 
-        # If already exists, update
+        # If already exists (400 ID_TAKEN), update it using the /id/{id}/update endpoint
         if response.status_code in (400, 409):
             response = httpx.post(
-                f"{OPENWEBUI_URL}/api/v1/tools/update",
+                f"{OPENWEBUI_URL}/api/v1/tools/id/{tool_id}/update",
                 json=payload,
                 headers=headers,
                 timeout=10,
@@ -142,16 +145,20 @@ def upload_function(token: str, func_id: str, name: str, description: str, filep
     payload = {
         "id": func_id,
         "name": name,
-        "description": description,
         "content": content,
         "type": func_type,
         "is_active": True,
         "is_global": True,  # Apply to all models
+        "meta": {
+            "name": name,
+            "description": description,
+        }
     }
 
     headers = {"Authorization": f"Bearer {token}"}
 
     try:
+        # Try to create
         response = httpx.post(
             f"{OPENWEBUI_URL}/api/v1/functions/create",
             json=payload,
@@ -160,21 +167,60 @@ def upload_function(token: str, func_id: str, name: str, description: str, filep
         )
         if response.status_code == 200:
             print(f"[seed] ✅ Function '{name}' created (type={func_type})")
-            return True
-
-        if response.status_code in (400, 409):
+        # If already exists, update using the /id/{id}/update endpoint
+        elif response.status_code in (400, 409):
             response = httpx.post(
-                f"{OPENWEBUI_URL}/api/v1/functions/update",
+                f"{OPENWEBUI_URL}/api/v1/functions/id/{func_id}/update",
                 json=payload,
                 headers=headers,
                 timeout=10,
             )
             if response.status_code == 200:
                 print(f"[seed] 🔄 Function '{name}' updated")
-                return True
+            else:
+                print(f"[seed] ❌ Failed to update function '{name}': {response.status_code} {response.text}")
+                return False
+        else:
+            print(f"[seed] ❌ Failed to create function '{name}': {response.status_code} {response.text}")
+            return False
 
-        print(f"[seed] ❌ Failed to upload function '{name}': {response.status_code} {response.text}")
-        return False
+        # Check current state before toggling (toggle is a FLIP, not a SET)
+        try:
+            state_resp = httpx.get(
+                f"{OPENWEBUI_URL}/api/v1/functions/id/{func_id}",
+                headers=headers,
+                timeout=5,
+            )
+            if state_resp.status_code == 200:
+                state = state_resp.json()
+                is_active = state.get("is_active", False)
+                is_global = state.get("is_global", False)
+
+                if not is_active:
+                    httpx.post(
+                        f"{OPENWEBUI_URL}/api/v1/functions/id/{func_id}/toggle",
+                        json={},
+                        headers=headers,
+                        timeout=5,
+                    )
+                    print(f"[seed] ⚡ Function '{name}' activated")
+                else:
+                    print(f"[seed] ✔️ Function '{name}' already active")
+
+                if not is_global:
+                    httpx.post(
+                        f"{OPENWEBUI_URL}/api/v1/functions/id/{func_id}/toggle/global",
+                        json={},
+                        headers=headers,
+                        timeout=5,
+                    )
+                    print(f"[seed] 🌐 Function '{name}' set to global")
+                else:
+                    print(f"[seed] ✔️ Function '{name}' already global")
+        except Exception as e:
+            print(f"[seed] ⚠️ Could not check/toggle function state: {e}")
+
+        return True
 
     except Exception as e:
         print(f"[seed] ❌ Error uploading function '{name}': {e}")
@@ -225,6 +271,20 @@ def main():
             "name": "🧠 Auto Router",
             "description": "Автоматический выбор модели на основе содержимого запроса (код → kodify, длинный контекст → cotype, изображения → VLM)",
             "filepath": f"{FUNCTIONS_DIR}/auto_router_filter.py",
+            "type": "filter",
+        },
+        {
+            "id": "memory_extract_filter",
+            "name": "💾 Memory Extractor (Outlet)",
+            "description": "Автоматическое извлечение фактов из контекста общения (role, preferences, project info) каждые N сообщений (Outlet Filter)",
+            "filepath": f"{FUNCTIONS_DIR}/memory_extract_filter.py",
+            "type": "filter",
+        },
+        {
+            "id": "context_inject_filter",
+            "name": "🧠 Context Injector (Inlet)",
+            "description": "Предзагрузка фактов из памяти перед отправкой запроса к LLM для повышения персонализации (Inlet Filter)",
+            "filepath": f"{FUNCTIONS_DIR}/context_inject_filter.py",
             "type": "filter",
         },
     ]
