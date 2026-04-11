@@ -24,18 +24,11 @@ services:
       - AUDIO_STT_OPENAI_API_KEY=dummy
       - AUDIO_STT_MODEL=whisper-1
       - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY:-supersecretkey123}
-      - WEBUI_AUTH=${WEBUI_AUTH:-true}
+      - WEBUI_AUTH=${WEBUI_AUTH:-false}
       - ENABLE_SIGNUP=true
-      - DEFAULT_USER_ROLE=admin
-
-      # --- PostgreSQL Database ---
-      - DATABASE_URL=postgresql://openwebui:openwebui_secret@postgres:5432/openwebui
-
     volumes:
       - open-webui-data-${ENV_NAME:-local}:/app/backend/data
     depends_on:
-      postgres:
-        condition: service_healthy
       ollama:
         condition: service_started
       searxng:
@@ -47,28 +40,6 @@ services:
     restart: unless-stopped
 
   # ============================================================
-  # PostgreSQL — Database (port 5432)
-  # ============================================================
-  postgres:
-    image: postgres:16-alpine
-    container_name: postgres
-    environment:
-      - POSTGRES_USER=openwebui
-      - POSTGRES_PASSWORD=openwebui_secret
-      - POSTGRES_DB=openwebui
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-    ports:
-      - "5433:5432"
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U openwebui"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  # ============================================================
-  # Ollama — Local VLM (Moondream 2B) (port 11434)
   # Ollama — Local VLM (Moondream 2B)
   # ============================================================
   ollama:
@@ -122,7 +93,7 @@ services:
     container_name: seed-${ENV_NAME:-local}
     environment:
       - OPENWEBUI_URL=http://open-webui:8080
-      - WEBUI_AUTH=${WEBUI_AUTH:-true}
+      - WEBUI_AUTH=${WEBUI_AUTH:-false}
     depends_on:
       open-webui:
         condition: service_started
@@ -135,6 +106,5 @@ networks:
     driver: bridge
 
 volumes:
-  open-webui-data:
-  ollama-data:
-  postgres-data:
+  open-webui-data-${ENV_NAME:-local}:
+  ollama-data-${ENV_NAME:-local}:
