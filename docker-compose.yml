@@ -1,40 +1,28 @@
-
 services:
   # ============================================================
-  # OpenWebUI — Main Chat Interface (port 8080)
-  # Pre-built image + our customizations on top
-  # For deep Svelte changes: build from ./open-webui source
+  # OpenWebUI — Main Chat Interface
   # ============================================================
   open-webui:
     build:
       context: .
       dockerfile: Dockerfile.openwebui
-    container_name: mts-ai-workspace
+    container_name: mts-ai-workspace-${ENV_NAME:-local}
     ports:
-      - "8080:8080"
+      - "${WEBUI_PORT:-8080}:8080"
     environment:
-      # --- MWS GPT API (OpenAI-compatible) ---
       - OPENAI_API_BASE_URL=https://api.gpt.mws.ru/v1
       - OPENAI_API_KEY=${MWS_API_KEY}
-
-      # --- Ollama (for VLM — Moondream) ---
       - OLLAMA_BASE_URL=http://ollama:11434
-
-      # --- RAG (embeddings via MWS bge-m3) ---
       - RAG_EMBEDDING_ENGINE=openai
       - RAG_EMBEDDING_MODEL=bge-m3
       - RAG_EMBEDDING_OPENAI_BATCH_SIZE=32
       - ENABLE_RAG_WEB_SEARCH=true
       - RAG_WEB_SEARCH_ENGINE=searxng
       - SEARXNG_QUERY_URL=http://searxng:8080/search?q=<query>&format=json
-
-      # --- Audio (STT via Whisper API) ---
       - AUDIO_STT_ENGINE=openai
       - AUDIO_STT_OPENAI_API_BASE_URL=http://whisper-api:9000/v1
       - AUDIO_STT_OPENAI_API_KEY=dummy
       - AUDIO_STT_MODEL=whisper-1
-
-      # --- Auth / UI ---
       - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY:-supersecretkey123}
       - WEBUI_AUTH=${WEBUI_AUTH:-true}
       - ENABLE_SIGNUP=true
@@ -44,7 +32,7 @@ services:
       - DATABASE_URL=postgresql://openwebui:openwebui_secret@postgres:5432/openwebui
 
     volumes:
-      - open-webui-data:/app/backend/data
+      - open-webui-data-${ENV_NAME:-local}:/app/backend/data
     depends_on:
       postgres:
         condition: service_healthy
@@ -54,6 +42,8 @@ services:
         condition: service_started
       whisper-api:
         condition: service_started
+    networks:
+      - mts-net-${ENV_NAME:-local}
     restart: unless-stopped
 
   # ============================================================
@@ -79,57 +69,70 @@ services:
 
   # ============================================================
   # Ollama — Local VLM (Moondream 2B) (port 11434)
+  # Ollama — Local VLM (Moondream 2B)
   # ============================================================
   ollama:
     image: ollama/ollama:latest
-    container_name: ollama
+    container_name: ollama-${ENV_NAME:-local}
     ports:
-      - "11434:11434"
+      - "${OLLAMA_PORT:-11434}:11434"
     volumes:
-      - ollama-data:/root/.ollama
+      - ollama-data-${ENV_NAME:-local}:/root/.ollama
+    networks:
+      - mts-net-${ENV_NAME:-local}
     restart: unless-stopped
 
   # ============================================================
-  # SearXNG — Self-hosted Meta Search Engine (port 8888)
+  # SearXNG — Meta Search Engine
   # ============================================================
   searxng:
     image: searxng/searxng:latest
-    container_name: searxng
+    container_name: searxng-${ENV_NAME:-local}
     ports:
-      - "8888:8080"
+      - "${SEARXNG_PORT:-8888}:8080"
     volumes:
       - ./config/searxng:/etc/searxng:rw
     environment:
-      - SEARXNG_BASE_URL=http://localhost:8888
+      - SEARXNG_BASE_URL=http://localhost:8080
+    networks:
+      - mts-net-${ENV_NAME:-local}
     restart: unless-stopped
 
   # ============================================================
-  # Whisper API — Speech-to-Text (port 9000)
+  # Whisper API — Speech-to-Text
   # ============================================================
   whisper-api:
     build:
       context: ./services/whisper
       dockerfile: Dockerfile
-    container_name: whisper-api
+    container_name: whisper-api-${ENV_NAME:-local}
     ports:
-      - "9000:9000"
+      - "${WHISPER_PORT:-9000}:9000"
+    networks:
+      - mts-net-${ENV_NAME:-local}
     restart: unless-stopped
 
   # ============================================================
-  # Seed Service — Auto-loads Tools/Functions on first run
+  # Seed Service — Auto-loads Tools/Functions
   # ============================================================
   seed:
     build:
       context: .
       dockerfile: scripts/Dockerfile.seed
-    container_name: seed
+    container_name: seed-${ENV_NAME:-local}
     environment:
       - OPENWEBUI_URL=http://open-webui:8080
       - WEBUI_AUTH=${WEBUI_AUTH:-true}
     depends_on:
       open-webui:
         condition: service_started
+    networks:
+      - mts-net-${ENV_NAME:-local}
     restart: "no"
+
+networks:
+  mts-net-${ENV_NAME:-local}:
+    driver: bridge
 
 volumes:
   open-webui-data:
