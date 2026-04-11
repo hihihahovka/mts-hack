@@ -34,6 +34,7 @@ services:
       - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY:-supersecretkey123}
       - WEBUI_AUTH=${WEBUI_AUTH:-true}
       - ENABLE_SIGNUP=true
+      - DEFAULT_USER_ROLE=admin
 
       # --- PostgreSQL Database ---
       - DATABASE_URL=postgresql://openwebui:openwebui_secret@postgres:5432/openwebui
