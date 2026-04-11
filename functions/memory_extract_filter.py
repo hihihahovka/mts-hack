@@ -53,6 +53,10 @@ class Filter:
             default=10,
             description="Max [PROJECT] facts to include in extraction prompt (via vector search)."
         )
+        max_deletes_per_cycle: int = Field(
+            default=2,
+            description="Maximum DELETE actions allowed per extraction cycle. Safety cap against LLM hallucinating mass deletions."
+        )
 
     def __init__(self):
         self.valves = self.Valves()
@@ -209,11 +213,15 @@ Use the following strict taxonomy categories:
 ACTIONS:
 - ADD: New fact not in known facts.
 - UPDATE: User corrects a known fact. Provide exact `target_id`.
-- DELETE: User explicitly denies/revokes a known fact. Provide exact `target_id`.
+- DELETE: User EXPLICITLY and UNAMBIGUOUSLY denies or revokes a known fact. Provide exact `target_id`.
 
-SAFETY FOR UPDATE/DELETE:
+SAFETY — READ CAREFULLY:
+- DELETE is EXTREMELY rare. Only use when user says something like "That's wrong, I don't have a cat" or "Remove that memory".
+- NEVER delete facts just because they weren't mentioned in the current conversation.
+- NEVER delete more than 1 fact per response.
 - Only target facts DIRECTLY contradicted by the user. Never touch unrelated facts.
-- One target per action. If user says "I lost my job" — only affect the job fact, not name or pets.
+- If user says "I lost my job" — only affect the job fact, not name or pets.
+- When in doubt, do NOT delete. Return [] instead.
 {existing_block}
 Chat History:
 {chat_history}
@@ -489,6 +497,15 @@ Output ONLY a valid JSON array. If nothing to extract, return [].
             target_id = item.get("target_id", "")
 
             if action == "DELETE":
+                # Safety cap: prevent LLM from mass-deleting memories
+                if deleted_count >= self.valves.max_deletes_per_cycle:
+                    logger.warning(
+                        f"[MemoryExtract] DELETE cap reached ({self.valves.max_deletes_per_cycle}). "
+                        f"Refusing further deletes this cycle. target_id={target_id[:12] if target_id else 'none'}..."
+                    )
+                    skipped_count += 1
+                    continue
+
                 if target_id and target_id in valid_ids:
                     old_content = valid_ids[target_id]
                     await self._delete_memory_internal(user_id, target_id, old_content)
@@ -508,6 +525,21 @@ Output ONLY a valid JSON array. If nothing to extract, return [].
 
             if action == "UPDATE":
                 if target_id and target_id in valid_ids:
+                    # If category changed (e.g. [PROJECT] → [USER]), clean up old Vector DB entry
+                    old_content = valid_ids[target_id]
+                    old_category = self._get_category(old_content)
+                    new_category = self._get_category(content)
+                    if old_category == "[PROJECT]" and new_category != "[PROJECT]":
+                        # Was PROJECT, now isn't — remove from Vector DB
+                        try:
+                            from open_webui.retrieval.vector.factory import VECTOR_DB_CLIENT
+                            collection = f"user-memory-{user_id}"
+                            if VECTOR_DB_CLIENT.has_collection(collection):
+                                VECTOR_DB_CLIENT.delete(collection_name=collection, ids=[target_id])
+                                logger.info(f"[MemoryExtract] Cleaned orphan vector entry for category change: {target_id}")
+                        except Exception as e:
+                            logger.warning(f"[MemoryExtract] Vector cleanup on category change failed: {e}")
+
                     await self._update_memory_internal(user_id, target_id, content, __request__)
                     valid_ids[target_id] = content
                     updated_count += 1
