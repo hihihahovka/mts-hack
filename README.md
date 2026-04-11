@@ -14,15 +14,23 @@ cp .env.example .env
 # Вписать MWS_API_KEY в .env
 
 # 3. Запустить всё одной командой
-docker-compose up -d
+docker compose up -d
 
 # 4. (Первый запуск) Скачать VLM модель для анализа изображений
-chmod +x scripts/setup.sh
-./scripts/setup.sh
+# chmod +x scripts/setup.sh
+# ./scripts/setup.sh
 
-# 5. Открыть в браузере
+# 4. Открыть в браузере
 open http://localhost:8080
 ```
+
++**для админа:**
+ 24 +- Email: `admin@mts-ai.local`
+ 25 +- Пароль: `adminpassword123`
+ 26 +
+ 27 +Или зарегистрируйтесь через **Sign Up**
+
+ P.S. настроил права так, чтобы каждый новый юзер сразу был админом
 
 ## 📦 Сервисы
 
