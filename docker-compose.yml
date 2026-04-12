@@ -32,7 +32,7 @@ services:
       - DATABASE_URL=postgresql://openwebui:openwebui_secret@postgres:5432/openwebui
 
     volumes:
-      - open-webui-data-${ENV_NAME:-local}:/app/backend/data
+      - open-webui-data:/app/backend/data
     depends_on:
       postgres:
         condition: service_healthy
@@ -43,7 +43,7 @@ services:
       whisper-api:
         condition: service_started
     networks:
-      - mts-net-${ENV_NAME:-local}
+      - mts-net
     restart: unless-stopped
 
   # ============================================================
@@ -60,6 +60,8 @@ services:
       - postgres-data:/var/lib/postgresql/data
     ports:
       - "5433:5432"
+    networks:
+      - mts-net
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U openwebui"]
@@ -77,9 +79,9 @@ services:
     ports:
       - "${OLLAMA_PORT:-11434}:11434"
     volumes:
-      - ollama-data-${ENV_NAME:-local}:/root/.ollama
+      - ollama-data:/root/.ollama
     networks:
-      - mts-net-${ENV_NAME:-local}
+      - mts-net
     restart: unless-stopped
 
   # ============================================================
@@ -95,7 +97,7 @@ services:
     environment:
       - SEARXNG_BASE_URL=http://localhost:8080
     networks:
-      - mts-net-${ENV_NAME:-local}
+      - mts-net
     restart: unless-stopped
 
   # ============================================================
@@ -109,7 +111,7 @@ services:
     ports:
       - "${WHISPER_PORT:-9000}:9000"
     networks:
-      - mts-net-${ENV_NAME:-local}
+      - mts-net
     restart: unless-stopped
 
   # ============================================================
@@ -127,11 +129,11 @@ services:
       open-webui:
         condition: service_started
     networks:
-      - mts-net-${ENV_NAME:-local}
+      - mts-net
     restart: "no"
 
 networks:
-  mts-net-${ENV_NAME:-local}:
+  mts-net:
     driver: bridge
 
 volumes:
