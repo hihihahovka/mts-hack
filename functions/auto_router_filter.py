@@ -129,23 +129,25 @@ class Filter:
                 "description": desc[:150]
             })
 
-        prompt = f"""You are an advanced AI model routing system. DO NOT ANSWER the user's query. Your ONLY task is to pick the best model ID from the Available Models list to handle the user's request.
-
-Rules:
-1. If the user attached an image ({has_image}), choose a Vision Language Model (VLM).
-2. If the user attached audio ({has_audio}), choose an ASR/Speech model.
-3. If the user asks to "generate image", "draw", "нарисуй", "сгенерируй изображение" or similar, choose a smart general model that has access to tools (like mws-gpt-alpha or equivalent). DO NOT try to pick DALL-E or Midjourney if they are not in the list!
-4. If the user attached a document/text file ({has_text_file}), choose a RAG model.
-5. Otherwise, choose a standard LLM for conversational text.
+        prompt = f"""You are an advanced AI routing system. DO NOT ANSWER the user's query. Your ONLY task is to select the most appropriate model ID from the Available Models list for the user's request.
 
 Available Models:
 {json.dumps(available_models, indent=2)}
+
+Original Model Selected by User: {original_model}
+
+Rules for Routing:
+1. If the user explicitly asks to generate an image ("нарисуй", "сгенерируй", "draw", "create an image", "изобрази"), you MUST select an Image Generation model (e.g., ID containing 'image', 'lightning', 'qwen-image', 'dall-e').
+2. If the user attached an image (has_image={has_image}), you MUST select a Vision Language Model (VLM) (e.g., ID containing 'vl', 'vision', 'cotype-pro-vl', 'qwen2.5-vl').
+3. If the user attached audio (has_audio={has_audio}), you MUST select an Audio model (e.g., 'whisper', 'asr').
+4. For ANY other standard text, reasoning, or coding questions, you MUST simply return the Original Model ID ({original_model}) chosen by the user. Do not try to be smart and pick another text model.
+5. DO NOT hallucinate. Only output exactly one Model ID from the Available Models list (or the Original Model ID).
 
 <user_query_to_analyze>
 {last_message}
 </user_query_to_analyze>
 
-Provide your answer as a single string of the chosen model ID. NO EXCEPTIONS. Do not say "I'm sorry" or "Here is the model". JUST THE STRING ID.
+Provide your answer as a single string of the chosen model ID. NO EXCEPTIONS. JUST THE STRING ID.
 """
         task_model_id = self.valves.router_model
         if not task_model_id:
@@ -177,13 +179,15 @@ Provide your answer as a single string of the chosen model ID. NO EXCEPTIONS. Do
                 if match:
                     selected_id = match.group(0)
                     if selected_id in models_dict:
-                        self._routed_model = selected_id
+                        if "metadata" not in body: body["metadata"] = {}
+                        body["metadata"]["_routed_model"] = selected_id
                         body["model"] = selected_id
                         return body
                         
                 for m in available_models:
                     if m["id"] == result_text:
-                        self._routed_model = result_text
+                        if "metadata" not in body: body["metadata"] = {}
+                        body["metadata"]["_routed_model"] = result_text
                         body["model"] = result_text
                         return body
                         
@@ -191,12 +195,9 @@ Provide your answer as a single string of the chosen model ID. NO EXCEPTIONS. Do
             log.error(f"Autorouting LLM selection error: {e}")
 
         # Fallback if LLM fails or no match found
-        if original_model == "autorouting":
-            fallback = available_models[0]["id"] if available_models else original_model
-            self._routed_model = fallback
-            body["model"] = fallback
-        else:
-            self._routed_model = original_model
+        if "metadata" not in body: body["metadata"] = {}
+        body["metadata"]["_routed_model"] = original_model
+        body["model"] = original_model
             
         return body
 
@@ -204,7 +205,8 @@ Provide your answer as a single string of the chosen model ID. NO EXCEPTIONS. Do
         """
         OUTLET: Injects a routing badge showing which model was used.
         """
-        if not self.valves.show_routing_badge or not self._routed_model:
+        routed_model = body.get("metadata", {}).get("_routed_model", "")
+        if not self.valves.show_routing_badge or not routed_model:
             return body
 
         messages = body.get("messages", [])
@@ -215,9 +217,8 @@ Provide your answer as a single string of the chosen model ID. NO EXCEPTIONS. Do
             if msg.get("role") == "assistant":
                 content = msg.get("content", "")
                 if isinstance(content, str) and content:
-                    badge = f"\n\n---\n🤖 *{self._routed_model}* — {self._routing_reason}\n"
+                    badge = f"\n\n---\n🤖 *{routed_model}* — {self._routing_reason}\n"
                     msg["content"] = content + badge
                 break
 
-        self._routed_model = ""
         return body

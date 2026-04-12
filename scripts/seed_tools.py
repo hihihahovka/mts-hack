@@ -286,9 +286,6 @@ def main():
         print("[seed] WARNING: Could not authenticate. Skipping seed.")
         sys.exit(0)
 
-    # Step 3: Seed Auto-Routing Model
-    upload_model(token, "autorouting", "⚡ Автопереключение", "Автоматический выбор нейросети (VLM, Audio, RAG) в зависимости от запроса")
-
     # Step 4: Upload Tools
     tools = [
         {
