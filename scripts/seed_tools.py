@@ -256,6 +256,12 @@ def main():
             "description": "Парсинг веб-страниц и извлечение контента в markdown. Вызовите scrape_url(url) для чтения страницы.",
             "filepath": f"{TOOLS_DIR}/web_scraper_tool.py",
         },
+        {
+            "id": "deep_research_tool",
+            "name": "🔬 Deep Research",
+            "description": "Глубокое исследование темы: декомпозиция запроса, поиск через SearXNG, парсинг через Jina Reader, синтез отчёта. Вызовите deep_research(topic) для исследования.",
+            "filepath": f"{TOOLS_DIR}/deep_research_tool.py",
+        },
     ]
 
     for tool in tools:

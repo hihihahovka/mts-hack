@@ -12,7 +12,6 @@ services:
     environment:
       - OPENAI_API_BASE_URL=https://api.gpt.mws.ru/v1
       - OPENAI_API_KEY=${MWS_API_KEY}
-      - OLLAMA_BASE_URL=http://ollama:11434
       - RAG_EMBEDDING_ENGINE=openai
       - RAG_EMBEDDING_MODEL=bge-m3
       - RAG_OPENAI_API_BASE_URL=https://api.gpt.mws.ru/v1
@@ -35,8 +34,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      ollama:
-        condition: service_started
       searxng:
         condition: service_started
       whisper-api:
@@ -44,6 +41,16 @@ services:
     networks:
       - mts-net
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s -f http://localhost:8080/api/version || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   # ============================================================
   # PostgreSQL — Database
@@ -62,25 +69,17 @@ services:
     networks:
       - mts-net
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U openwebui"]
       interval: 5s
       timeout: 5s
       retries: 5
 
-  # ============================================================
-  # Ollama
-  # ============================================================
-  ollama:
-    image: ollama/ollama:latest
-    container_name: ollama-${ENV_NAME:-local}
-    ports:
-      - "${OLLAMA_PORT:-11434}:11434"
-    volumes:
-      - ollama-data:/root/.ollama
-    networks:
-      - mts-net
-    restart: unless-stopped
 
   # ============================================================
   # SearXNG
@@ -97,6 +96,11 @@ services:
     networks:
       - mts-net
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
 
   # ============================================================
   # Whisper API
@@ -111,6 +115,11 @@ services:
     networks:
       - mts-net
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4G
 
   # ============================================================
   # Seed Service
@@ -125,10 +134,51 @@ services:
       - WEBUI_AUTH=${WEBUI_AUTH:-true}
     depends_on:
       open-webui:
-        condition: service_started
+        condition: service_healthy
     networks:
       - mts-net
     restart: "no"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+
+  # ============================================================
+  # Monitoring Stack (Portainer + Dozzle)
+  # ============================================================
+  portainer:
+    image: portainer/portainer-ce:latest
+    container_name: portainer-${ENV_NAME:-local}
+    ports:
+      - "${PORTAINER_PORT:-9010}:9000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer_data:/data
+    restart: unless-stopped
+    networks:
+      - mts-net
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+
+  dozzle:
+    image: amir20/dozzle:latest
+    container_name: dozzle-${ENV_NAME:-local}
+    ports:
+      - "${DOZZLE_PORT:-9990}:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+    networks:
+      - mts-net
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
 
 networks:
   mts-net:
@@ -136,5 +186,5 @@ networks:
 
 volumes:
   open-webui-data:
-  ollama-data:
   postgres-data:
+  portainer_data:
