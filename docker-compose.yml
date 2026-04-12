@@ -25,7 +25,7 @@ services:
       - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY:-supersecretkey123}
       - WEBUI_AUTH=${WEBUI_AUTH:-true}
       - ENABLE_SIGNUP=true
-      - DATABASE_URL=postgresql://openwebui:openwebui_secret@postgres:5432/openwebui
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-openwebui}:${POSTGRES_PASSWORD:-openwebui_secret}@postgres:5432/${POSTGRES_DB:-openwebui}
     volumes:
       - open-webui-data:/app/backend/data
     depends_on:
@@ -56,9 +56,9 @@ services:
     image: postgres:16-alpine
     container_name: postgres-${ENV_NAME:-local}
     environment:
-      - POSTGRES_USER=openwebui
-      - POSTGRES_PASSWORD=openwebui_secret
-      - POSTGRES_DB=openwebui
+      - POSTGRES_USER=${POSTGRES_USER:-openwebui}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-openwebui_secret}
+      - POSTGRES_DB=${POSTGRES_DB:-openwebui}
     volumes:
       - postgres-data:/var/lib/postgresql/data
     ports:
