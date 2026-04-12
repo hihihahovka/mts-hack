@@ -24,11 +24,14 @@ services:
       - AUDIO_STT_OPENAI_API_KEY=dummy
       - AUDIO_STT_MODEL=whisper-1
       - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY:-supersecretkey123}
-      - WEBUI_AUTH=${WEBUI_AUTH:-false}
+      - WEBUI_AUTH=${WEBUI_AUTH:-true}
       - ENABLE_SIGNUP=true
+      - DATABASE_URL=postgresql://openwebui:openwebui_secret@postgres:5432/openwebui
     volumes:
-      - open-webui-data-${ENV_NAME:-local}:/app/backend/data
+      - open-webui-data:/app/backend/data
     depends_on:
+      postgres:
+        condition: service_healthy
       ollama:
         condition: service_started
       searxng:
@@ -36,11 +39,34 @@ services:
       whisper-api:
         condition: service_started
     networks:
-      - mts-net-${ENV_NAME:-local}
+      - mts-net
     restart: unless-stopped
 
   # ============================================================
-  # Ollama — Local VLM (Moondream 2B)
+  # PostgreSQL — Database
+  # ============================================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres-${ENV_NAME:-local}
+    environment:
+      - POSTGRES_USER=openwebui
+      - POSTGRES_PASSWORD=openwebui_secret
+      - POSTGRES_DB=openwebui
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "${DB_PORT:-5432}:5432" # Сделали порт переменной!
+    networks:
+      - mts-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openwebui"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ============================================================
+  # Ollama
   # ============================================================
   ollama:
     image: ollama/ollama:latest
@@ -48,13 +74,13 @@ services:
     ports:
       - "${OLLAMA_PORT:-11434}:11434"
     volumes:
-      - ollama-data-${ENV_NAME:-local}:/root/.ollama
+      - ollama-data:/root/.ollama
     networks:
-      - mts-net-${ENV_NAME:-local}
+      - mts-net
     restart: unless-stopped
 
   # ============================================================
-  # SearXNG — Meta Search Engine
+  # SearXNG
   # ============================================================
   searxng:
     image: searxng/searxng:latest
@@ -66,11 +92,11 @@ services:
     environment:
       - SEARXNG_BASE_URL=http://localhost:8080
     networks:
-      - mts-net-${ENV_NAME:-local}
+      - mts-net
     restart: unless-stopped
 
   # ============================================================
-  # Whisper API — Speech-to-Text
+  # Whisper API
   # ============================================================
   whisper-api:
     build:
@@ -80,11 +106,11 @@ services:
     ports:
       - "${WHISPER_PORT:-9000}:9000"
     networks:
-      - mts-net-${ENV_NAME:-local}
+      - mts-net
     restart: unless-stopped
 
   # ============================================================
-  # Seed Service — Auto-loads Tools/Functions
+  # Seed Service
   # ============================================================
   seed:
     build:
@@ -93,18 +119,19 @@ services:
     container_name: seed-${ENV_NAME:-local}
     environment:
       - OPENWEBUI_URL=http://open-webui:8080
-      - WEBUI_AUTH=${WEBUI_AUTH:-false}
+      - WEBUI_AUTH=${WEBUI_AUTH:-true}
     depends_on:
       open-webui:
         condition: service_started
     networks:
-      - mts-net-${ENV_NAME:-local}
+      - mts-net
     restart: "no"
 
 networks:
-  mts-net-${ENV_NAME:-local}:
+  mts-net:
     driver: bridge
 
 volumes:
-  open-webui-data-${ENV_NAME:-local}:
-  ollama-data-${ENV_NAME:-local}:
+  open-webui-data:
+  ollama-data:
+  postgres-data:
