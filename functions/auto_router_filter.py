@@ -113,22 +113,23 @@ class Filter:
                 "name": model_data.get("name", model_id)
             })
 
-        prompt = f"""You are an advanced AI model router. Your job is to select the most appropriate model ID from the JSON list of available models below, based strictly on the user's latest request and contextual hints.
+        prompt = f"""You are an advanced AI model routing system. DO NOT ANSWER the user's query. Your ONLY task is to pick the best model ID from the Available Models list to handle the user's request.
 
-Rules to follow:
-1. If the user attached an image ({has_image}), you MUST choose a VLM (Vision Language Model).
-2. If the user attached audio ({has_audio}), you MUST choose an ASR (Speech-to-text/Audio) model.
-3. If the user asks to "generate image", "draw", or similar, choose an Image Generation model.
-4. If the user attached a document/text file ({has_text_file}), choose a model suited for RAG (e.g. rag_files).
+Rules:
+1. If the user attached an image ({has_image}), choose a Vision Language Model (VLM).
+2. If the user attached audio ({has_audio}), choose an ASR/Speech model.
+3. If the user asks to "generate image", "draw", "нарисуй", "сгенерируй изображение" or similar, YOU MUST choose an Image Generation model (like DALL-E, if present).
+4. If the user attached a document/text file ({has_text_file}), choose a RAG model.
 5. Otherwise, choose a standard LLM for conversational text.
 
 Available Models:
 {json.dumps(available_models, indent=2)}
 
-User's Latest Query:
+<user_query_to_analyze>
 {last_message}
+</user_query_to_analyze>
 
-IMPORTANT: Reply ONLY with a valid string containing the selected `id` from the Available Models list. Do not include quotes, JSON, or any other explanations. Just the ID string.
+Provide your answer as a single string of the chosen model ID. NO EXCEPTIONS. Do not say "I'm sorry" or "Here is the model". JUST THE STRING ID.
 """
         task_model_id = self.valves.router_model
         if not task_model_id:
