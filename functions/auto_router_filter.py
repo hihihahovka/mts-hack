@@ -173,7 +173,14 @@ IMPORTANT: Reply ONLY with a valid string containing the selected `id` from the 
         except Exception as e:
             log.error(f"Autorouting LLM selection error: {e}")
 
-        self._routed_model = original_model
+        # Fallback if LLM fails or no match found
+        if original_model == "autorouting":
+            fallback = available_models[0]["id"] if available_models else original_model
+            self._routed_model = fallback
+            body["model"] = fallback
+        else:
+            self._routed_model = original_model
+            
         return body
 
     async def outlet(self, body: dict, __user__: dict = None, __event_emitter__=None) -> dict:

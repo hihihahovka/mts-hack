@@ -1653,10 +1653,10 @@ async def chat_completion(
     try:
         model_info = None
         if not model_item.get('direct', False):
-            if model_id not in request.app.state.MODELS:
+            if model_id not in request.app.state.MODELS and model_id != "autorouting":
                 raise Exception('Model not found')
 
-            model = request.app.state.MODELS[model_id]
+            model = request.app.state.MODELS.get(model_id, {})
             model_info = Models.get_model_by_id(model_id)
 
             # Check if user has access to the model
