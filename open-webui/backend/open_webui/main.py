@@ -1495,6 +1495,9 @@ app.include_router(images.router, prefix='/api/v1/images', tags=['images'])
 app.include_router(audio.router, prefix='/api/v1/audio', tags=['audio'])
 app.include_router(retrieval.router, prefix='/api/v1/retrieval', tags=['retrieval'])
 
+from open_webui.retrieval.rag_files.router import router as rag_files_router
+app.include_router(rag_files_router, prefix='/api/v1/rag', tags=['rag-files'])
+
 app.include_router(configs.router, prefix='/api/v1/configs', tags=['configs'])
 
 app.include_router(auths.router, prefix='/api/v1/auths', tags=['auths'])
