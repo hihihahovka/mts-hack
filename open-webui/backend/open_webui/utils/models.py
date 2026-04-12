@@ -462,18 +462,28 @@ def get_filtered_models(models, user, db=None):
         output = models
 
     import time
+    now_ts = int(time.time())
     autorouting_model = {
         'id': 'autorouting',
         'name': '⚡ Автопереключение',
         'object': 'model',
-        'created': int(time.time()),
-        'owned_by': 'openai',  # 'openai' category avoids some frontend filtering
+        'created': now_ts,
+        'owned_by': 'openai',  
         'arena': False,
+        'preset': True,
         'info': {
+            'id': 'autorouting',
+            'user_id': '',
+            'base_model_id': '',
+            'name': '⚡ Автопереключение',
+            'params': {},
             'meta': {
                 'profile_image_url': '/favicon.png',
                 'description': 'Автоматический выбор нейросети (VLM, Audio, RAG) в зависимости от запроса'
-            }
+            },
+            'is_active': True,
+            'updated_at': now_ts,
+            'created_at': now_ts
         }
     }
     
