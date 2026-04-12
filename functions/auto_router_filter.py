@@ -111,9 +111,22 @@ class Filter:
         for model_id, model_data in models_dict.items():
             if "pipeline" in model_data and model_data["pipeline"].get("type") == "filter":
                 continue
+            if model_id == "autorouting":
+                continue
+            
+            desc = model_data.get("info", {}).get("meta", {}).get("description", "")
+            capabilities = model_data.get("info", {}).get("meta", {}).get("capabilities", {})
+            if capabilities.get("vision"):
+                desc += " (Vision/Image capable VLM)"
+                
+            if not desc:
+                # Fallback to name keywords if there's no description
+                desc = "vision vlm image" if any(x in model_id.lower() or x in model_data.get("name", "").lower() for x in ["vision", "vlm", "vl"]) else ""
+                
             available_models.append({
                 "id": model_id,
-                "name": model_data.get("name", model_id)
+                "name": model_data.get("name", model_id),
+                "description": desc[:150]
             })
 
         prompt = f"""You are an advanced AI model routing system. DO NOT ANSWER the user's query. Your ONLY task is to pick the best model ID from the Available Models list to handle the user's request.

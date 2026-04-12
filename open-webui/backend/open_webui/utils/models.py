@@ -74,7 +74,21 @@ async def get_all_base_models(request: Request, user: UserModel = None):
 
     openai_models, ollama_models, function_models = await asyncio.gather(openai_task, ollama_task, function_task)
 
-    return function_models + openai_models + ollama_models
+    autorouting_model = {
+        'id': 'autorouting',
+        'name': '⚡ Автопереключение',
+        'object': 'model',
+        'created': int(time.time()),
+        'owned_by': 'system',
+        'info': {
+            'meta': {
+                'profile_image_url': '/favicon.png',
+                'description': 'Автоматический выбор нейросети (VLM, Audio, RAG) в зависимости от запроса'
+            }
+        }
+    }
+
+    return [autorouting_model] + function_models + openai_models + ollama_models
 
 
 async def get_all_models(request, refresh: bool = False, user: UserModel = None):
