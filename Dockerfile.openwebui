@@ -1,9 +1,17 @@
 # Расширяем готовый образ OpenWebUI нашими кастомизациями
-# Для глубоких изменений в Svelte-компонентах — билдить из исходников
+# Для глубоких изменений в Svelte-компонентах нужно много оперативной памяти (Docker Desktop не тянет)
 FROM ghcr.io/open-webui/open-webui:main
 
 # Fix upstream bug: uncomment `db = None` to prevent UnboundLocalError in db.py
 RUN sed -i 's/# db = None/db = None/' /app/backend/open_webui/internal/db.py
 
 # Копируем кастомную тему (будет доступна по /static/custom.css)
-# COPY themes/custom.css /app/build/static/custom.css
+COPY themes/custom.css /app/build/static/custom.css
+
+# Копируем JS-виджет переключателя тем
+COPY themes/theme-selector.js /app/build/static/theme-selector.js
+
+# Инжектим скрипт переключателя тем в <head> HTML
+# 1) Ранний инлайн-скрипт для восстановления темы до рендера (без FOUC)
+# 2) Отложенная загрузка виджета
+RUN sed -i 's|</head>|<script>var t=localStorage.getItem("mts-theme");if(t)document.documentElement.setAttribute("data-theme",t);</script><script defer src="/static/theme-selector.js"></script></head>|' /app/build/index.html
