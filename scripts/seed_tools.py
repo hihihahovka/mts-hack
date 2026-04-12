@@ -293,6 +293,13 @@ def main():
             "filepath": f"{FUNCTIONS_DIR}/context_inject_filter.py",
             "type": "filter",
         },
+        {
+            "id": "image_gen_pipe",
+            "name": "🖼️ Image Generation (qwen-image)",
+            "description": "Генерация изображений через MWS GPT API. Модели qwen-image и qwen-image-lightning появятся в выпадающем списке.",
+            "filepath": f"{FUNCTIONS_DIR}/image_gen_pipe.py",
+            "type": "pipe",
+        },
     ]
 
     for func in functions:
