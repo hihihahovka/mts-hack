@@ -14,6 +14,8 @@ services:
       - OPENAI_API_KEY=${MWS_API_KEY}
       - RAG_EMBEDDING_ENGINE=openai
       - RAG_EMBEDDING_MODEL=bge-m3
+      - RAG_OPENAI_API_BASE_URL=https://api.gpt.mws.ru/v1
+      - RAG_OPENAI_API_KEY=${MWS_API_KEY}
       - RAG_EMBEDDING_OPENAI_BATCH_SIZE=32
       - ENABLE_RAG_WEB_SEARCH=true
       - RAG_WEB_SEARCH_ENGINE=searxng
