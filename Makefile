@@ -27,15 +27,15 @@ install:
 		echo "[*] Файл .env уже существует. Пропускаю..."; \
 	fi
 	@echo "[*] Запускаю сборку и старт сервисов..."
-	docker compose up -d --build
+	docker compose up -d --build --remove-orphans
 
 start:
 	@echo "[*] Запуск сервисов..."
-	docker compose up -d
+	docker compose up -d --remove-orphans
 
 stop:
 	@echo "[*] Остановка сервисов..."
-	docker compose down
+	docker compose down --remove-orphans
 
 restart: stop start
 
@@ -44,5 +44,5 @@ logs:
 
 wipe:
 	@echo "[!] Удаляю все сервисы и сохраненную базу данных..."
-	docker compose down -v
+	docker compose down -v --remove-orphans
 	@echo "[*] Готово. Окружение полностью сброшено до нуля."
