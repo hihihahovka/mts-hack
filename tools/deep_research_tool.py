@@ -64,7 +64,7 @@ class Tools:
             description="Model used for decomposition and synthesis"
         )
         max_links_per_query: int = Field(
-            default=3,
+            default=5,
             description="Maximum number of links to parse per sub-query"
         )
         max_content_length: int = Field(
@@ -72,8 +72,8 @@ class Tools:
             description="Maximum content length in characters per page"
         )
         max_total_content: int = Field(
-            default=50000,
-            description="Maximum total content for LLM synthesis (~12k tokens)"
+            default=40000,
+            description="Maximum total content for LLM synthesis (~10k tokens)"
         )
         llm_timeout: int = Field(
             default=180,
@@ -129,6 +129,88 @@ class Tools:
             data = resp.json()
             return data["choices"][0]["message"]["content"]
 
+    async def _call_llm_streaming(self, prompt: str, system: str, __event_emitter__, timeout: int = 180) -> str:
+        """Стриминговый вызов LLM, пишет токены прямо в чат.
+        
+        Ключевое: используем httpx.Timeout с раздельными таймаутами.
+        connect=15s — быстро подключиться к серверу.
+        read=300s — каждый отдельный chunk может ждать до 5 мин.
+        Это предотвращает убийство стрима из-за медленной генерации.
+        """
+        api_key = (
+            self.valves.llm_api_key
+            or os.environ.get("MWS_API_KEY")
+            or os.environ.get("OPENAI_API_KEY", "")
+        )
+
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+
+        payload = {
+            "model": self.valves.llm_model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": prompt}
+            ],
+            "stream": True
+        }
+        
+        # Раздельные таймауты: connect быстро, read — долго (стрим может жить минуты)
+        stream_timeout = httpx.Timeout(
+            connect=15.0,
+            read=300.0,   # до 5 минут между чанками
+            write=30.0,
+            pool=15.0
+        )
+        
+        full_text = ""
+        chunk_count = 0
+        try:
+            async with httpx.AsyncClient(timeout=stream_timeout) as client:
+                async with client.stream(
+                    "POST",
+                    f"{self.valves.llm_base_url}/chat/completions",
+                    headers=headers,
+                    json=payload
+                ) as response:
+                    response.raise_for_status()
+                    async for line in response.aiter_lines():
+                        if not line or not line.startswith("data: "):
+                            continue
+                        if line == "data: [DONE]":
+                            break
+                        try:
+                            data = json.loads(line[6:])
+                            delta = data["choices"][0]["delta"].get("content", "")
+                            if delta:
+                                full_text += delta
+                                chunk_count += 1
+                                # Отправляем токен прямо в UI
+                                if __event_emitter__:
+                                    await __event_emitter__({
+                                        "type": "message",
+                                        "data": {"content": delta}
+                                    })
+                        except (json.JSONDecodeError, KeyError, IndexError):
+                            pass
+        except httpx.ReadTimeout:
+            logger.error("Streaming LLM read timeout — модель перестала отвечать")
+            if not full_text:
+                full_text = "Ошибка: модель перестала отвечать (ReadTimeout). Попробуйте снова."
+        except httpx.ConnectTimeout:
+            logger.error("Streaming LLM connect timeout — не удалось подключиться к API")
+            if not full_text:
+                full_text = "Ошибка: не удалось подключиться к API (ConnectTimeout)."
+        except Exception as e:
+            logger.error(f"Streaming failed: {type(e).__name__}: {e}")
+            if not full_text:
+                full_text = f"Ошибка генерации: {type(e).__name__}: {e}"
+        
+        logger.info(f"Streaming complete: {chunk_count} chunks, {len(full_text)} chars")
+        return full_text
+
     async def _search_query(self, query: str) -> List[Dict[str, str]]:
         """
         Поиск через SearXNG.
@@ -157,19 +239,52 @@ class Tools:
             logger.error(f"SearXNG search failed for '{query}': {e}")
             return []
 
+    async def _direct_scrape(self, url: str) -> str:
+        """
+        Fallback-скрейпер: загружает страницу напрямую и убирает HTML-теги.
+        Используется когда Jina Reader не может загрузить (451, timeout и т.д.).
+        Запрос идёт с IP контейнера (= ваш IP), поэтому гео-блокировок нет.
+        """
+        async with httpx.AsyncClient(
+            timeout=15,
+            follow_redirects=True,
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml",
+                "Accept-Language": "ru-RU,ru;q=0.9,en;q=0.8",
+            }
+        ) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            html = resp.text
+
+        # Убираем script, style, nav, footer, header блоки
+        for tag in ["script", "style", "nav", "footer", "header", "aside", "noscript"]:
+            html = re.sub(rf"<{tag}[^>]*>.*?</{tag}>", "", html, flags=re.DOTALL | re.IGNORECASE)
+
+        # Убираем все HTML-теги, оставляем текст
+        text = re.sub(r"<[^>]+>", " ", html)
+        # Убираем лишние пробелы и пустые строки
+        text = re.sub(r"[ \t]+", " ", text)
+        text = re.sub(r"\n\s*\n", "\n\n", text)
+        text = text.strip()
+
+        return text
+
     async def _read_url(self, url: str, __event_emitter__=None) -> str:
         """
-        Парсинг страницы через Jina Reader API.
-        Jina убирает рекламу, меню, скрипты — оставляет чистый текст.
+        Парсинг страницы: сначала Jina Reader, при ошибке — прямой скрейпинг.
         """
-        # Показываем пользователю что читаем
         if __event_emitter__:
             short_url = url[:60] + "..." if len(url) > 60 else url
             await self.emit_status(__event_emitter__, f"📖 Читаю: {short_url}", False)
 
+        content = None
+
+        # --- Попытка 1: Jina Reader (чистый markdown) ---
         try:
             jina_url = f"{self.valves.jina_base_url}/{url}"
-            async with httpx.AsyncClient(timeout=25, follow_redirects=True) as client:
+            async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
                 resp = await client.get(
                     jina_url,
                     headers={
@@ -179,22 +294,29 @@ class Tools:
                 )
                 resp.raise_for_status()
                 content = resp.text
-
-                # Обрезаем слишком длинный контент
-                if len(content) > self.valves.max_content_length:
-                    # Обрезаем по последнему полному предложению
-                    truncated = content[:self.valves.max_content_length]
-                    last_period = truncated.rfind('.')
-                    if last_period > self.valves.max_content_length // 2:
-                        content = truncated[:last_period + 1] + "\n\n...[контент обрезан]"
-                    else:
-                        content = truncated + "\n\n...[контент обрезан]"
-
-                return f"### Источник: {url}\n\n{content}"
-
+                logger.info(f"Jina OK: {url} ({len(content)} chars)")
         except Exception as e:
-            logger.error(f"Jina Reader failed for '{url}': {e}")
-            return f"### Источник: {url}\n\n[Не удалось загрузить страницу: {str(e)[:100]}]"
+            logger.warning(f"Jina failed for '{url}': {e} — trying direct scrape")
+
+        # --- Попытка 2: Прямой скрейпинг (если Jina не смогла) ---
+        if not content:
+            try:
+                content = await self._direct_scrape(url)
+                logger.info(f"Direct scrape OK: {url} ({len(content)} chars)")
+            except Exception as e2:
+                logger.error(f"Direct scrape also failed for '{url}': {e2}")
+                return f"### Источник: {url}\n\n[Не удалось загрузить страницу: {str(e2)[:100]}]"
+
+        # --- Обрезка ---
+        if len(content) > self.valves.max_content_length:
+            truncated = content[:self.valves.max_content_length]
+            last_period = truncated.rfind('.')
+            if last_period > self.valves.max_content_length // 2:
+                content = truncated[:last_period + 1] + "\n\n...[контент обрезан]"
+            else:
+                content = truncated + "\n\n...[контент обрезан]"
+
+        return f"### Источник: {url}\n\n{content}"
 
     async def deep_research(
         self,
@@ -227,11 +349,12 @@ class Tools:
         )
 
         sys_decompose = """Ты — эксперт по поиску информации.
-Разбей исследовательский вопрос пользователя на 3-4 конкретных поисковых запроса.
+Разбей исследовательский вопрос пользователя на 4-5 конкретных поисковых запросов.
 Каждый запрос должен искать разный аспект темы.
+Делай запросы на том же языке, что и вопрос пользователя.
 
 ВАЖНО: Верни ТОЛЬКО JSON массив строк, без пояснений.
-Пример: ["запрос 1", "запрос 2", "запрос 3"]"""
+Пример: ["запрос 1", "запрос 2", "запрос 3", "запрос 4", "запрос 5"]"""
 
         try:
             json_str = await self._call_llm(topic, sys_decompose, timeout=30)
@@ -268,9 +391,17 @@ class Tools:
             False
         )
 
-        # Параллельный поиск по всем запросам
-        search_tasks = [self._search_query(q) for q in sub_queries]
-        search_results = await asyncio.gather(*search_tasks)
+        # Параллельный поиск по всем запросам (ограничение 2 одновременно)
+        sem_search = asyncio.Semaphore(2)
+
+        async def bounded_search(q):
+            async with sem_search:
+                return await self._search_query(q)
+
+        search_tasks = [bounded_search(q) for q in sub_queries]
+        search_results = await asyncio.gather(*search_tasks, return_exceptions=True)
+        # Отфильтровываем исключения
+        search_results = [res for res in search_results if isinstance(res, list)]
 
         # Собираем уникальные URL (дедупликация)
         seen_urls = set()
@@ -308,10 +439,19 @@ class Tools:
             False
         )
 
-        # Параллельный парсинг всех URL
+        # Параллельный парсинг всех URL (ограничение 3 одновременно)
+        sem_read = asyncio.Semaphore(3)
+
+        async def bounded_read(url):
+            async with sem_read:
+                return await self._read_url(url, __event_emitter__)
+
         urls_to_read = [r["url"] for r in all_results]
-        read_tasks = [self._read_url(url, __event_emitter__) for url in urls_to_read]
-        read_results = await asyncio.gather(*read_tasks)
+        read_tasks = [bounded_read(url) for url in urls_to_read]
+        read_results = await asyncio.gather(*read_tasks, return_exceptions=True)
+        
+        # Отфильтровать возможные исключения от asyncio
+        read_results = [res for res in read_results if isinstance(res, str)]
 
         # Объединяем контент с разделителями
         separator = "\n\n" + "═" * 60 + "\n\n"
@@ -371,17 +511,34 @@ class Tools:
 Составь отчёт по теме, используя эти материалы как источник информации."""
 
         try:
-            final_report = await self._call_llm(
+            # Даем строку отступа перед началом текста
+            if __event_emitter__:
+                await __event_emitter__({
+                    "type": "message",
+                    "data": {"content": "\n\n"}
+                })
+            
+            logger.info(f"Starting synthesis: {len(combined_content)} chars of context")
+                
+            final_report = await self._call_llm_streaming(
                 prompt_synth,
                 sys_synth,
+                __event_emitter__,
                 timeout=self.valves.llm_timeout
             )
+            
+            if not final_report or final_report.startswith("Ошибка"):
+                logger.error(f"Synthesis returned error or empty: {final_report[:200]}")
+            
             await self.emit_status(
                 __event_emitter__,
                 "✅ Исследование завершено!",
                 True
             )
-            return final_report
+            # Контент уже застримлен в UI через event_emitter.
+            # Возвращаем пустую строку, чтобы OpenWebUI не пытался
+            # повторно отобразить/парсить return value.
+            return ""
 
         except Exception as e:
             logger.error(f"Synthesis failed: {e}")
