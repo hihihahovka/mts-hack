@@ -68,16 +68,19 @@ class Filter:
         # Check messages for attachments
         for msg in messages:
             if msg.get("role") == "user":
+                if "image" in file_type_keywords and msg.get("images"):
+                    return True
                 content = msg.get("content", "")
                 if isinstance(content, list):
                     for part in content:
                         if part.get("type") == "image_url" and "image" in file_type_keywords:
                             return True
                 for file_item in msg.get("files", []):
-                    t = file_item.get("type", "")
-                    n = file_item.get("name", "").lower()
-                    if any(k in t for k in file_type_keywords) or n.endswith(file_exts):
-                        return True
+                    if isinstance(file_item, dict):
+                        t = file_item.get("type", "")
+                        n = file_item.get("name", "").lower()
+                        if any(k in t for k in file_type_keywords) or n.endswith(file_exts):
+                            return True
         return False
 
     async def inlet(self, body: dict, __user__: dict = None, __request__: Request = None) -> dict:

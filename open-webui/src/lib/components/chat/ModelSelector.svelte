@@ -132,15 +132,5 @@
 		class="relative text-left mt-[1px] ml-1 text-[0.7rem] text-gray-600 dark:text-gray-400 font-primary flex flex-col gap-1 items-start"
 	>
 		<button class="hover:text-gray-800 dark:hover:text-gray-200" on:click={saveDefaultModel}> {$i18n.t('Set as default')}</button>
-		
-		<button class="hover:text-gray-800 dark:hover:text-gray-200 mt-0.5 text-blue-500 font-medium" 
-			on:click={() => { 
-				selectedModels = ['autorouting']; 
-				saveDefaultModel();
-				toast.success('Режим Autorouting включен');
-			}}>
-			⚡ Авторутинг
-		</button>
 	</div>
 {/if}
-
