@@ -43,11 +43,11 @@ services:
     restart: unless-stopped
 
   # ============================================================
-  # PostgreSQL — Database (port 5432)
+  # PostgreSQL — Database
   # ============================================================
   postgres:
     image: postgres:16-alpine
-    container_name: postgres
+    container_name: postgres-${ENV_NAME:-local}
     environment:
       - POSTGRES_USER=openwebui
       - POSTGRES_PASSWORD=openwebui_secret
@@ -55,7 +55,7 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
     ports:
-      - "5433:5432"
+      - "${DB_PORT:-5432}:5432" # Сделали порт переменной!
     networks:
       - mts-net
     restart: unless-stopped
@@ -66,8 +66,7 @@ services:
       retries: 5
 
   # ============================================================
-  # Ollama — Local VLM (Moondream 2B) (port 11434)
-  # Ollama — Local VLM (Moondream 2B)
+  # Ollama
   # ============================================================
   ollama:
     image: ollama/ollama:latest
@@ -81,7 +80,7 @@ services:
     restart: unless-stopped
 
   # ============================================================
-  # SearXNG — Meta Search Engine
+  # SearXNG
   # ============================================================
   searxng:
     image: searxng/searxng:latest
@@ -97,7 +96,7 @@ services:
     restart: unless-stopped
 
   # ============================================================
-  # Whisper API — Speech-to-Text
+  # Whisper API
   # ============================================================
   whisper-api:
     build:
@@ -111,7 +110,7 @@ services:
     restart: unless-stopped
 
   # ============================================================
-  # Seed Service — Auto-loads Tools/Functions
+  # Seed Service
   # ============================================================
   seed:
     build:
