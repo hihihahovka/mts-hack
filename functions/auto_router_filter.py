@@ -150,12 +150,9 @@ Rules for Routing:
 Provide your answer as a single string of the chosen model ID. NO EXCEPTIONS. JUST THE STRING ID.
 """
         task_model_id = self.valves.router_model
-        if not task_model_id:
-            task_model_id = __request__.app.state.config.TASK_MODEL
-        
         if not task_model_id or task_model_id not in models_dict:
-            task_model_id = available_models[0]["id"] if available_models else None
-
+            task_model_id = original_model
+            
         if not task_model_id:
             return body
 
@@ -174,22 +171,23 @@ Provide your answer as a single string of the chosen model ID. NO EXCEPTIONS. JU
             if 'choices' in response and len(response['choices']) > 0:
                 result_text = response['choices'][0]['message']['content'].strip()
                 
-                # Extract the ID
-                match = re.search(r'[\w.-]+', result_text)
-                if match:
-                    selected_id = match.group(0)
-                    if selected_id in models_dict:
-                        if "metadata" not in body: body["metadata"] = {}
-                        body["metadata"]["_routed_model"] = selected_id
-                        body["model"] = selected_id
-                        return body
+                # Clean up <think> blocks common in Deepseek R1
+                result_text = re.sub(r'<think>.*?</think>', '', result_text, flags=re.DOTALL).strip()
+                
+                # Match the longest model ID present in the generated text
+                sorted_models = sorted(available_models, key=lambda x: len(x["id"]), reverse=True)
+                
+                routed_id = None
+                for m in sorted_models:
+                    if m["id"] in result_text:
+                        routed_id = m["id"]
+                        break
                         
-                for m in available_models:
-                    if m["id"] == result_text:
-                        if "metadata" not in body: body["metadata"] = {}
-                        body["metadata"]["_routed_model"] = result_text
-                        body["model"] = result_text
-                        return body
+                if routed_id:
+                    if "metadata" not in body: body["metadata"] = {}
+                    body["metadata"]["_routed_model"] = routed_id
+                    body["model"] = routed_id
+                    return body
                         
         except Exception as e:
             log.error(f"Autorouting LLM selection error: {e}")
