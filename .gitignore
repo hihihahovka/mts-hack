@@ -28,6 +28,7 @@ share/python-wheels/
 
 # Virtual Environments
 venv/
+.venv*
 .venv/
 ENV/
 env.bak/

@@ -40,10 +40,7 @@ class Filter:
             default="cotype-preview-32k",
             description="Model for long documents (>16k tokens)"
         )
-        vlm_model: str = Field(
-            default="moondream:latest",
-            description="Vision model for image analysis (Ollama)"
-        )
+
         enable_auto_routing: bool = Field(
             default=True,
             description="Enable automatic model routing"
@@ -145,12 +142,7 @@ class Filter:
 
         # === Level 1: Heuristic routing (instant) ===
 
-        # 1. Image attachment → VLM (Moondream)
-        if self._has_images(messages):
-            self._routed_model = self.valves.vlm_model
-            self._routing_reason = "обнаружено изображение"
-            body["model"] = self._routed_model
-            return body
+        # 1. (VLM image routing was removed because Ollama is removed)
 
         # 2. Code-related keywords → kodify-2.0
         if self.CODE_PATTERNS.search(last_message):
