@@ -24,10 +24,10 @@ services:
       - AUDIO_STT_OPENAI_API_KEY=dummy
       - AUDIO_STT_MODEL=whisper-1
       - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY:-supersecretkey123}
-      - WEBUI_AUTH=${WEBUI_AUTH:-false}
+      - WEBUI_AUTH=${WEBUI_AUTH:-true}
       - ENABLE_SIGNUP=true
     volumes:
-      - open-webui-data-${ENV_NAME:-local}:/app/backend/data
+      - open-webui-data:/app/backend/data
     depends_on:
       ollama:
         condition: service_started
@@ -36,7 +36,7 @@ services:
       whisper-api:
         condition: service_started
     networks:
-      - mts-net-${ENV_NAME:-local}
+      - mts-net
     restart: unless-stopped
 
   # ============================================================
@@ -48,9 +48,9 @@ services:
     ports:
       - "${OLLAMA_PORT:-11434}:11434"
     volumes:
-      - ollama-data-${ENV_NAME:-local}:/root/.ollama
+      - ollama-data:/root/.ollama
     networks:
-      - mts-net-${ENV_NAME:-local}
+      - mts-net
     restart: unless-stopped
 
   # ============================================================
@@ -66,7 +66,7 @@ services:
     environment:
       - SEARXNG_BASE_URL=http://localhost:8080
     networks:
-      - mts-net-${ENV_NAME:-local}
+      - mts-net
     restart: unless-stopped
 
   # ============================================================
@@ -80,7 +80,7 @@ services:
     ports:
       - "${WHISPER_PORT:-9000}:9000"
     networks:
-      - mts-net-${ENV_NAME:-local}
+      - mts-net
     restart: unless-stopped
 
   # ============================================================
@@ -93,18 +93,21 @@ services:
     container_name: seed-${ENV_NAME:-local}
     environment:
       - OPENWEBUI_URL=http://open-webui:8080
-      - WEBUI_AUTH=${WEBUI_AUTH:-false}
+      - WEBUI_AUTH=${WEBUI_AUTH:-true}
     depends_on:
       open-webui:
         condition: service_started
     networks:
-      - mts-net-${ENV_NAME:-local}
+      - mts-net
     restart: "no"
 
 networks:
-  mts-net-${ENV_NAME:-local}:
+  mts-net:
+    name: mts-net-${ENV_NAME:-local}
     driver: bridge
 
 volumes:
-  open-webui-data-${ENV_NAME:-local}:
-  ollama-data-${ENV_NAME:-local}:
+  open-webui-data:
+    name: open-webui-data-${ENV_NAME:-local}
+  ollama-data:
+    name: ollama-data-${ENV_NAME:-local}
