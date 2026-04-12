@@ -24,18 +24,11 @@ services:
       - AUDIO_STT_OPENAI_API_KEY=dummy
       - AUDIO_STT_MODEL=whisper-1
       - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY:-supersecretkey123}
-      - WEBUI_AUTH=${WEBUI_AUTH:-true}
+      - WEBUI_AUTH=${WEBUI_AUTH:-false}
       - ENABLE_SIGNUP=true
-      - DEFAULT_USER_ROLE=admin
-
-      # --- PostgreSQL Database ---
-      - DATABASE_URL=postgresql://openwebui:openwebui_secret@postgres:5432/openwebui
-
     volumes:
       - open-webui-data:/app/backend/data
     depends_on:
-      postgres:
-        condition: service_healthy
       ollama:
         condition: service_started
       searxng:
@@ -60,8 +53,6 @@ services:
       - postgres-data:/var/lib/postgresql/data
     ports:
       - "5433:5432"
-    networks:
-      - mts-net
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U openwebui"]
@@ -124,7 +115,7 @@ services:
     container_name: seed-${ENV_NAME:-local}
     environment:
       - OPENWEBUI_URL=http://open-webui:8080
-      - WEBUI_AUTH=${WEBUI_AUTH:-true}
+      - WEBUI_AUTH=${WEBUI_AUTH:-false}
     depends_on:
       open-webui:
         condition: service_started
