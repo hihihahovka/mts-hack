@@ -5,11 +5,11 @@ OpenWebUI Filter Function (inlet) that retrieves long-term memory context
 and injects it into the system prompt.
 
 ARCHITECTURE:
-- [USER] + [FEEDBACK] = SQL (always injected, global core memory)
+- [IDENTITY] + [USER] + [FEEDBACK] = SQL (always injected, global core memory)
 - [PROJECT] = Vector DB semantic search (contextual, top-N relevant)
 - Fallback: if Vector DB unavailable, [PROJECT] falls back to SQL recency
 
-Uses Claude-Code style Taxonomy parsing: [USER], [PROJECT], [FEEDBACK].
+Uses Claude-Code style Taxonomy: [IDENTITY], [USER], [PROJECT], [FEEDBACK].
 """
 
 import datetime
@@ -31,11 +31,11 @@ class Filter:
             description="Maximum number of [USER] memories to inject."
         )
         max_project_memories: int = Field(
-            default=5,
+            default=10,
             description="Maximum number of [PROJECT] memories to inject via semantic search."
         )
         project_fallback_count: int = Field(
-            default=5,
+            default=10,
             description="Number of recent [PROJECT] facts to inject when Vector DB is unavailable."
         )
 
@@ -135,9 +135,9 @@ class Filter:
             logger.warning(f"[ContextInject] Vector search failed (falling back to SQL): {type(e).__name__}: {e}")
             return []
 
-    def _format_memory_context(self, user_facts: list, feedback_facts: list, project_facts: list) -> str:
+    def _format_memory_context(self, identity_facts: list, user_facts: list, feedback_facts: list, project_facts: list) -> str:
         """Formats categorized memory lists into a structured system prompt block."""
-        if not user_facts and not feedback_facts and not project_facts:
+        if not identity_facts and not user_facts and not feedback_facts and not project_facts:
             return ""
 
         blocks = []
@@ -150,9 +150,15 @@ class Filter:
             for f in feedback_facts:
                 blocks.append(f"- {f}")
 
-        # Inject [USER] with cap
+        # ALWAYS inject all [IDENTITY] — core facts never evicted
+        if identity_facts:
+            blocks.append("\n## User Identity:")
+            for f in identity_facts:
+                blocks.append(f"- {f}")
+
+        # Inject [USER] with cap — rolling preferences
         if user_facts:
-            blocks.append("\n## User Profile:")
+            blocks.append("\n## User Preferences:")
             for f in user_facts[-self.valves.max_user_memories:]:
                 blocks.append(f"- {f}")
 
@@ -190,14 +196,17 @@ class Filter:
         if not raw_memories:
             return body
 
-        # 2. Categorize — separate global facts from project facts
+        # 2. Categorize — separate by priority tier
+        identity_facts = []
         user_facts = []
         feedback_facts = []
         project_facts_sql = []
 
         for mem in raw_memories:
             content = mem["content"].strip()
-            if content.startswith("[USER]"):
+            if content.startswith("[IDENTITY]"):
+                identity_facts.append(content.replace("[IDENTITY]", "").strip())
+            elif content.startswith("[USER]"):
                 user_facts.append(content.replace("[USER]", "").strip())
             elif content.startswith("[FEEDBACK]"):
                 feedback_facts.append(content.replace("[FEEDBACK]", "").strip())
@@ -233,7 +242,7 @@ class Filter:
             logger.info(f"[ContextInject] Using SQL fallback for {len(project_facts)} [PROJECT] memories")
 
         # 4. Format and inject
-        memory_block = self._format_memory_context(user_facts, feedback_facts, project_facts)
+        memory_block = self._format_memory_context(identity_facts, user_facts, feedback_facts, project_facts)
 
         if not memory_block:
             return body
@@ -249,9 +258,9 @@ class Filter:
 
         body["messages"] = messages
 
-        global_count = len(user_facts) + len(feedback_facts)
+        global_count = len(identity_facts) + len(user_facts) + len(feedback_facts)
         logger.info(
-            f"[ContextInject] Injected {global_count} global + {len(project_facts)} project "
+            f"[ContextInject] Injected {global_count} global ({len(identity_facts)} identity) + {len(project_facts)} project "
             f"({'semantic' if vector_search_succeeded else 'recency'}) memories"
         )
 

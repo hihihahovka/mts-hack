@@ -5,18 +5,19 @@ OpenWebUI Filter Function (outlet) that automatically extracts long-term context
 about the user from the conversation and saves it into OpenWebUI's built-in memory.
 
 ARCHITECTURE:
-- [USER] + [FEEDBACK] = SQL only (global core memory, no embeddings)
+- [IDENTITY] + [USER] + [FEEDBACK] = SQL only (global core memory, no embeddings)
 - [PROJECT] = SQL + Vector DB (semantic episodic memory)
 - Extraction LLM sees bounded context: all global facts + top-N relevant project facts
 - Uses request.app.state.EMBEDDING_FUNCTION for proper async embedding generation
 
-Uses Claude-Code style Taxonomy: [USER], [PROJECT], [FEEDBACK].
+Uses Claude-Code style Taxonomy: [IDENTITY], [USER], [PROJECT], [FEEDBACK].
 
 DEADLOCK AVOIDANCE:
 - LLM extraction calls go DIRECTLY to MWS GPT API (not via OpenWebUI).
 - Memory saves use the internal ORM directly (we're already inside OpenWebUI's process).
 """
 
+import datetime
 import json
 import logging
 import os
@@ -83,7 +84,7 @@ class Filter:
         """Normalize text for comparison: lowercase, strip whitespace and category tags."""
         import re
         text = text.lower().strip()
-        text = re.sub(r'\[(?:user|project|feedback)\]\s*', '', text)
+        text = re.sub(r'\[(?:identity|user|project|feedback)\]\s*', '', text)
         text = re.sub(r'\s+', ' ', text)
         return text
 
@@ -107,7 +108,7 @@ class Filter:
 
     def _get_category(self, content: str) -> str:
         """Extract category tag from memory content."""
-        for cat in ("[USER]", "[PROJECT]", "[FEEDBACK]"):
+        for cat in ("[IDENTITY]", "[USER]", "[PROJECT]", "[FEEDBACK]"):
             if content.strip().startswith(cat):
                 return cat
         return ""
@@ -165,7 +166,7 @@ class Filter:
         - Top-N [PROJECT] from vector search (bounded, not all)
         Returns combined list of memory dicts.
         """
-        global_memories = [m for m in all_memories if self._get_category(m["content"]) in ("[USER]", "[FEEDBACK]")]
+        global_memories = [m for m in all_memories if self._get_category(m["content"]) in ("[IDENTITY]", "[USER]", "[FEEDBACK]")]
 
         # Use vector results for PROJECT, deduplicated by ID
         seen_ids = {m["id"] for m in global_memories}
@@ -197,6 +198,8 @@ class Filter:
             existing_block = f"""\n\nALREADY KNOWN FACTS (do NOT re-extract these or rephrasings of these):
 {existing_lines}\n"""
 
+        current_date = datetime.datetime.now().strftime("%Y-%m-%d")
+
         prompt = f"""You are a memory extraction agent. Analyze the chat history and extract persistent facts about the user.
 
 CRITICAL RULES:
@@ -205,8 +208,14 @@ CRITICAL RULES:
 3. If the assistant says "I have a cat" or "my name is X" — that is the AI talking about itself, NOT a user fact. Ignore it completely.
 4. Only extract information the user directly confirmed or volunteered about themselves.
 
+TEMPORAL GROUNDING (TODAY IS {current_date}):
+If the user mentions relative time ("tomorrow", "next week", "recently"), convert it to an absolute date or month in the extracted fact.
+Bad: "User is launching MVP next week."
+Good: "User is launching MVP around {current_date}."
+
 Use the following strict taxonomy categories:
-- [USER]: Facts about the user's role, preferences, skills, and background — ONLY if stated by the user.
+- [IDENTITY]: Foundational facts about the user's life (Name, Profession, Location, Family, Spoken Languages). THESE CAN CHANGE. If the user moves to a new city or gets a new job, use UPDATE to modify their existing [IDENTITY] fact.
+- [USER]: General preferences, tastes, or minor details (e.g., "Likes dark mode", "Prefers Python over JS", "Has a cat named Bublik").
 - [PROJECT]: Facts about the project architecture, tech stack, and current state. Treat this as a living summary. If the user changes a previous technical decision (e.g., switching databases, changing frameworks), use UPDATE to overwrite the old fact rather than ADDing a conflicting new one.
 - [FEEDBACK]: Explicit corrections or behavioral preferences the user has stated (e.g., "Don't write comments", "Always use pytest").
 
@@ -226,11 +235,11 @@ SAFETY — READ CAREFULLY:
 Chat History:
 {chat_history}
 
-Output ONLY a valid JSON array. If nothing to extract, return [].
+Output ONLY a valid JSON array. Each object MUST include a "reason" key explaining why. If nothing to extract, return [].
 [
-  {{"action": "ADD", "category": "[USER]", "fact": "fact text"}},
-  {{"action": "UPDATE", "target_id": "id", "category": "[USER]", "fact": "updated text"}},
-  {{"action": "DELETE", "target_id": "id"}}
+  {{"reason": "User stated their name", "action": "ADD", "category": "[IDENTITY]", "fact": "fact text"}},
+  {{"reason": "User corrected their database choice", "action": "UPDATE", "target_id": "id", "category": "[PROJECT]", "fact": "updated text"}},
+  {{"reason": "User said they no longer have a dog", "action": "DELETE", "target_id": "id"}}
 ]"""
 
         headers = {
