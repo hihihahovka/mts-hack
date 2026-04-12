@@ -12,6 +12,7 @@ The LLM calls generate_image(prompt) when the user asks to
 import os
 import logging
 import httpx
+import base64
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -117,15 +118,25 @@ class Tools:
                     await __event_emitter__(
                         {"type": "status", "data": {"description": "❌ Нет URL изображения в ответе", "done": True}}
                     )
-                return "❌ API не вернул URL изображения."
-
             if __event_emitter__:
                 await __event_emitter__(
                     {"type": "status", "data": {"description": "✅ Изображение сгенерировано!", "done": True}}
                 )
 
+            # Download the image and convert to base64 data URI
+            try:
+                async with httpx.AsyncClient(timeout=30) as client:
+                    img_response = await client.get(image_url)
+                    img_response.raise_for_status()
+                    b64_data = base64.b64encode(img_response.content).decode("utf-8")
+                    content_type = img_response.headers.get("content-type", "image/png")
+                    display_url = f"data:{content_type};base64,{b64_data}"
+            except Exception as e:
+                logger.warning(f"[ImageGen] Could not download image for inline display: {e}")
+                display_url = image_url
+
             # Return markdown image — OpenWebUI will render it inline
-            return f"![{revised_prompt}]({image_url})\n\n*Сгенерировано моделью **{self.valves.model}** по запросу: \"{prompt}\"*"
+            return f"![{revised_prompt}]({display_url})\n\n*Сгенерировано моделью **{self.valves.model}** по запросу: \"{prompt}\"*"
 
         except httpx.TimeoutException:
             logger.error("[ImageGen] Request timed out")

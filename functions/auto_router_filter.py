@@ -107,6 +107,13 @@ class Filter:
             return body
 
         original_model = body.get("model", "")
+
+        # Skip routing for pipe models (e.g. "image_gen_pipe.qwen-image")
+        # The user explicitly chose a pipe — don't override their selection
+        if "." in original_model:
+            log.info(f"[AutoRouter] Skipping routing for pipe model: {original_model}")
+            return body
+
         last_message = self._get_last_user_message(messages)
         files = body.get("files", [])
 
@@ -125,8 +132,8 @@ class Filter:
         if any(keyword in last_message_lower for keyword in ["нарисуй", "сгенерируй", "draw", "create an image", "изобрази"]):
             if "metadata" not in body:
                 body["metadata"] = {}
-            body["metadata"]["_routed_model"] = "qwen-image"
-            body["model"] = "qwen-image"
+            body["metadata"]["_routed_model"] = "image_gen_pipe.qwen-image"
+            body["model"] = "image_gen_pipe.qwen-image"
             return body
 
         has_audio = self._has_modality(
