@@ -26,17 +26,16 @@ log = logging.getLogger(__name__)
 class Filter:
     class Valves(BaseModel):
         """Configurable parameters visible in OpenWebUI Admin Panel."""
+
         enable_auto_routing: bool = Field(
-            default=True,
-            description="Enable automatic neural network model routing"
+            default=True, description="Enable automatic neural network model routing"
         )
         show_routing_badge: bool = Field(
-            default=True,
-            description="Show routing badge in response"
+            default=True, description="Show routing badge in response"
         )
         router_model: str = Field(
             default="",
-            description="The model to use for routing decisions. Leave blank to use system default TASK_MODEL."
+            description="The model to use for routing decisions. Leave blank to use system default TASK_MODEL.",
         )
 
     def __init__(self):
@@ -58,7 +57,9 @@ class Filter:
                     return " ".join(text_parts)
         return ""
 
-    def _has_modality(self, messages: list, files: list, file_type_keywords: list, file_exts: tuple) -> bool:
+    def _has_modality(
+        self, messages: list, files: list, file_type_keywords: list, file_exts: tuple
+    ) -> bool:
         # Check files array
         for file_item in files:
             t = file_item.get("type", "")
@@ -73,17 +74,24 @@ class Filter:
                 content = msg.get("content", "")
                 if isinstance(content, list):
                     for part in content:
-                        if part.get("type") == "image_url" and "image" in file_type_keywords:
+                        if (
+                            part.get("type") == "image_url"
+                            and "image" in file_type_keywords
+                        ):
                             return True
                 for file_item in msg.get("files", []):
                     if isinstance(file_item, dict):
                         t = file_item.get("type", "")
                         n = file_item.get("name", "").lower()
-                        if any(k in t for k in file_type_keywords) or n.endswith(file_exts):
+                        if any(k in t for k in file_type_keywords) or n.endswith(
+                            file_exts
+                        ):
                             return True
         return False
 
-    async def inlet(self, body: dict, __user__: dict = None, __request__: Request = None) -> dict:
+    async def inlet(
+        self, body: dict, __user__: dict = None, __request__: Request = None
+    ) -> dict:
         """
         INLET: Analyzes the user's message using an LLM and routes to the optimal model.
         """
@@ -102,32 +110,71 @@ class Filter:
         last_message = self._get_last_user_message(messages)
         files = body.get("files", [])
 
-        has_image = self._has_modality(messages, files, ["image"], (".png", ".jpg", ".jpeg", ".gif"))
-        has_audio = self._has_modality(messages, files, ["audio"], (".mp3", ".wav", ".ogg", ".m4a"))
-        has_text_file = self._has_modality(messages, files, ["text", "pdf", "document"], (".txt", ".pdf", ".docx", ".csv"))
+        has_image = self._has_modality(
+            messages, files, ["image"], (".png", ".jpg", ".jpeg", ".gif")
+        )
+        if has_image:
+            if "metadata" not in body:
+                body["metadata"] = {}
+            body["metadata"]["_routed_model"] = "qwen2.5-vl-72b"
+            body["model"] = "qwen2.5-vl-72b"
+            return body
+            
+        # Hardcode image generation routing
+        last_message_lower = last_message.lower()
+        if any(keyword in last_message_lower for keyword in ["нарисуй", "сгенерируй", "draw", "create an image", "изобрази"]):
+            if "metadata" not in body:
+                body["metadata"] = {}
+            body["metadata"]["_routed_model"] = "qwen-image"
+            body["model"] = "qwen-image"
+            return body
+
+        has_audio = self._has_modality(
+            messages, files, ["audio"], (".mp3", ".wav", ".ogg", ".m4a")
+        )
+        has_text_file = self._has_modality(
+            messages,
+            files,
+            ["text", "pdf", "document"],
+            (".txt", ".pdf", ".docx", ".csv"),
+        )
 
         models_dict = __request__.app.state.MODELS
         available_models = []
         for model_id, model_data in models_dict.items():
-            if "pipeline" in model_data and model_data["pipeline"].get("type") == "filter":
+            if (
+                "pipeline" in model_data
+                and model_data["pipeline"].get("type") == "filter"
+            ):
                 continue
             if model_id == "autorouting":
                 continue
-            
+
             desc = model_data.get("info", {}).get("meta", {}).get("description", "")
-            capabilities = model_data.get("info", {}).get("meta", {}).get("capabilities", {})
+            capabilities = (
+                model_data.get("info", {}).get("meta", {}).get("capabilities", {})
+            )
             if capabilities.get("vision"):
                 desc += " (Vision/Image capable VLM)"
-                
+
             if not desc:
                 # Fallback to name keywords if there's no description
-                desc = "vision vlm image" if any(x in model_id.lower() or x in model_data.get("name", "").lower() for x in ["vision", "vlm", "vl"]) else ""
-                
-            available_models.append({
-                "id": model_id,
-                "name": model_data.get("name", model_id),
-                "description": desc[:150]
-            })
+                desc = (
+                    "vision vlm image"
+                    if any(
+                        x in model_id.lower() or x in model_data.get("name", "").lower()
+                        for x in ["vision", "vlm", "vl"]
+                    )
+                    else ""
+                )
+
+            available_models.append(
+                {
+                    "id": model_id,
+                    "name": model_data.get("name", model_id),
+                    "description": desc[:150],
+                }
+            )
 
         prompt = f"""You are an advanced AI routing system. DO NOT ANSWER the user's query. Your ONLY task is to select the most appropriate model ID from the Available Models list for the user's request.
 
@@ -152,7 +199,7 @@ Provide your answer as a single string of the chosen model ID. NO EXCEPTIONS. JU
         task_model_id = self.valves.router_model
         if not task_model_id or task_model_id not in models_dict:
             task_model_id = original_model
-            
+
         if not task_model_id:
             return body
 
@@ -160,46 +207,53 @@ Provide your answer as a single string of the chosen model ID. NO EXCEPTIONS. JU
             "model": task_model_id,
             "messages": [{"role": "user", "content": prompt}],
             "stream": False,
-            "metadata": {
-                "task": "MODEL_AUTOROUTING",
-                "bypass_filter": True
-            }
+            "metadata": {"task": "MODEL_AUTOROUTING", "bypass_filter": True},
         }
 
         try:
-            response = await generate_chat_completion(__request__, form_data=payload, user=__user__, bypass_filter=True)
-            if 'choices' in response and len(response['choices']) > 0:
-                result_text = response['choices'][0]['message']['content'].strip()
-                
+            response = await generate_chat_completion(
+                __request__, form_data=payload, user=__user__, bypass_filter=True
+            )
+            if "choices" in response and len(response["choices"]) > 0:
+                result_text = response["choices"][0]["message"]["content"].strip()
+
                 # Clean up <think> blocks common in Deepseek R1
-                result_text = re.sub(r'<think>.*?</think>', '', result_text, flags=re.DOTALL).strip()
-                
+                result_text = re.sub(
+                    r"<think>.*?</think>", "", result_text, flags=re.DOTALL
+                ).strip()
+
                 # Match the longest model ID present in the generated text
-                sorted_models = sorted(available_models, key=lambda x: len(x["id"]), reverse=True)
-                
+                sorted_models = sorted(
+                    available_models, key=lambda x: len(x["id"]), reverse=True
+                )
+
                 routed_id = None
                 for m in sorted_models:
                     if m["id"] in result_text:
                         routed_id = m["id"]
                         break
-                        
+
                 if routed_id:
-                    if "metadata" not in body: body["metadata"] = {}
+                    if "metadata" not in body:
+                        body["metadata"] = {}
                     body["metadata"]["_routed_model"] = routed_id
                     body["model"] = routed_id
                     return body
-                        
+
         except Exception as e:
             log.error(f"Autorouting LLM selection error: {e}")
 
         # Fallback if LLM fails or no match found
-        if "metadata" not in body: body["metadata"] = {}
+        if "metadata" not in body:
+            body["metadata"] = {}
         body["metadata"]["_routed_model"] = original_model
         body["model"] = original_model
-            
+
         return body
 
-    async def outlet(self, body: dict, __user__: dict = None, __event_emitter__=None) -> dict:
+    async def outlet(
+        self, body: dict, __user__: dict = None, __event_emitter__=None
+    ) -> dict:
         """
         OUTLET: Injects a routing badge showing which model was used.
         """
@@ -216,7 +270,4 @@ Provide your answer as a single string of the chosen model ID. NO EXCEPTIONS. JU
                 content = msg.get("content", "")
                 if isinstance(content, str) and content:
                     badge = f"\n\n---\n🤖 *{routed_model}* — {self._routing_reason}\n"
-                    msg["content"] = content + badge
-                break
-
         return body
