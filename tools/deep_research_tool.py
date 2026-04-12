@@ -35,6 +35,7 @@ import logging
 import os
 import re
 from typing import List, Dict, Any
+from urllib.parse import urlsplit, urlunsplit
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -79,6 +80,10 @@ class Tools:
             default=180,
             description="Timeout in seconds for LLM synthesis call"
         )
+        llm_retries: int = Field(
+            default=2,
+            description="Number of retries for transient LLM network failures"
+        )
 
     def __init__(self):
         self.valves = self.Valves()
@@ -119,15 +124,25 @@ class Tools:
             ]
         }
 
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.post(
-                f"{self.valves.llm_base_url}/chat/completions",
-                headers=headers,
-                json=payload
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            return data["choices"][0]["message"]["content"]
+        last_error = None
+        for attempt in range(self.valves.llm_retries + 1):
+            try:
+                async with httpx.AsyncClient(timeout=timeout) as client:
+                    resp = await client.post(
+                        f"{self.valves.llm_base_url}/chat/completions",
+                        headers=headers,
+                        json=payload
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
+                    return data["choices"][0]["message"]["content"]
+            except (httpx.ConnectTimeout, httpx.ConnectError, httpx.ReadError) as e:
+                last_error = e
+                if attempt >= self.valves.llm_retries:
+                    break
+                await asyncio.sleep(1 + attempt)
+
+        raise last_error
 
     async def _call_llm_streaming(self, prompt: str, system: str, __event_emitter__, timeout: int = 180) -> str:
         """Стриминговый вызов LLM, пишет токены прямо в чат.
@@ -157,44 +172,69 @@ class Tools:
             "stream": True
         }
         
-        # Раздельные таймауты: connect быстро, read — долго (стрим может жить минуты)
+        # Раздельные таймауты: connect быстро, read берём из timeout.
         stream_timeout = httpx.Timeout(
             connect=15.0,
-            read=300.0,   # до 5 минут между чанками
+            read=max(30.0, float(timeout)),
             write=30.0,
             pool=15.0
         )
-        
+
         full_text = ""
         chunk_count = 0
+        ui_buffer = ""
         try:
-            async with httpx.AsyncClient(timeout=stream_timeout) as client:
-                async with client.stream(
-                    "POST",
-                    f"{self.valves.llm_base_url}/chat/completions",
-                    headers=headers,
-                    json=payload
-                ) as response:
-                    response.raise_for_status()
-                    async for line in response.aiter_lines():
-                        if not line or not line.startswith("data: "):
-                            continue
-                        if line == "data: [DONE]":
-                            break
-                        try:
-                            data = json.loads(line[6:])
-                            delta = data["choices"][0]["delta"].get("content", "")
-                            if delta:
-                                full_text += delta
-                                chunk_count += 1
-                                # Отправляем токен прямо в UI
-                                if __event_emitter__:
-                                    await __event_emitter__({
-                                        "type": "message",
-                                        "data": {"content": delta}
-                                    })
-                        except (json.JSONDecodeError, KeyError, IndexError):
-                            pass
+            last_error = None
+            for attempt in range(self.valves.llm_retries + 1):
+                try:
+                    async with httpx.AsyncClient(timeout=stream_timeout) as client:
+                        async with client.stream(
+                            "POST",
+                            f"{self.valves.llm_base_url}/chat/completions",
+                            headers=headers,
+                            json=payload
+                        ) as response:
+                            response.raise_for_status()
+                            async for line in response.aiter_lines():
+                                if not line:
+                                    continue
+                                if not line.startswith("data:"):
+                                    continue
+
+                                data_line = line[5:].strip()
+                                if data_line == "[DONE]":
+                                    break
+                                try:
+                                    data = json.loads(data_line)
+                                    delta = data["choices"][0]["delta"].get("content", "")
+                                    if delta:
+                                        full_text += delta
+                                        chunk_count += 1
+                                        ui_buffer += delta
+
+                                        # Батчим отправку, чтобы не блокировать UI/сокет на каждый токен.
+                                        if __event_emitter__:
+                                            if len(ui_buffer) >= 120 or "\n" in delta:
+                                                await __event_emitter__({
+                                                    "type": "message",
+                                                    "data": {"content": ui_buffer}
+                                                })
+                                                ui_buffer = ""
+                                except (json.JSONDecodeError, KeyError, IndexError):
+                                    pass
+
+                    break
+                except (httpx.ConnectTimeout, httpx.ConnectError, httpx.ReadError) as e:
+                    last_error = e
+                    if full_text or attempt >= self.valves.llm_retries:
+                        raise
+                    await asyncio.sleep(1 + attempt)
+
+            if __event_emitter__ and ui_buffer:
+                await __event_emitter__({
+                    "type": "message",
+                    "data": {"content": ui_buffer}
+                })
         except httpx.ReadTimeout:
             logger.error("Streaming LLM read timeout — модель перестала отвечать")
             if not full_text:
@@ -426,6 +466,12 @@ class Tools:
             False
         )
 
+        url_to_title = {}
+        for res in all_results:
+            raw_url = (res.get("url") or "").strip()
+            if raw_url:
+                url_to_title[raw_url] = (res.get("title") or "").strip()
+
         # ═══════════════════════════════════════════════════════════
         # ШАГ 3: ПАРСИНГ (Crawling & Filtering)
         # ═══════════════════════════════════════════════════════════
@@ -456,6 +502,37 @@ class Tools:
         # Объединяем контент с разделителями
         separator = "\n\n" + "═" * 60 + "\n\n"
         combined_content = separator.join(read_results)
+
+        source_lines = []
+        source_seen = set()
+        for chunk in read_results:
+            m = re.match(r"^### Источник: (.+?)\n", chunk)
+            if not m:
+                continue
+
+            url = m.group(1).strip()
+            if "[Не удалось загрузить страницу:" in chunk:
+                continue
+
+            try:
+                p = urlsplit(url)
+                if p.scheme in ("http", "https") and p.netloc:
+                    url = urlunsplit((p.scheme, p.netloc, p.path, p.query, p.fragment))
+            except Exception:
+                pass
+
+            if not url.startswith(("http://", "https://")):
+                continue
+            if url in source_seen:
+                continue
+            source_seen.add(url)
+
+            title = url_to_title.get(url, "")
+            if title:
+                safe_title = title.replace("[", "\\[").replace("]", "\\]")
+                source_lines.append(f"- [{safe_title}]({url})")
+            else:
+                source_lines.append(f"- [{url}]({url})")
 
         # Обрезаем если слишком много (защита от token overflow)
         if len(combined_content) > self.valves.max_total_content:
@@ -488,7 +565,8 @@ class Tools:
 1. Используй Markdown форматирование (заголовки, списки, выделение)
 2. Структурируй информацию логически
 3. Если источники противоречат друг другу — укажи это
-4. В конце добавь раздел "Источники" со списком URL
+4. Верни ОДИН цельный отчёт без повторений и альтернативных версий
+5. Не добавляй раздел "Источники" (он будет добавлен автоматически)
 
 ФОРМАТ:
 ## Краткий ответ
@@ -498,17 +576,15 @@ class Tools:
 [Основной контент с подзаголовками]
 
 ## Ключевые выводы
-[Буллеты с главными тезисами]
-
-## Источники
-[Список URL из материалов]"""
+[Буллеты с главными тезисами]"""
 
         prompt_synth = f"""ТЕМА ИССЛЕДОВАНИЯ: {topic}
 
 СОБРАННЫЕ МАТЕРИАЛЫ ИЗ ИНТЕРНЕТА:
 {combined_content}
 
-Составь отчёт по теме, используя эти материалы как источник информации."""
+Составь ОДИН отчёт по теме, используя эти материалы как источник информации.
+Не добавляй раздел 'Источники'."""
 
         try:
             # Даем строку отступа перед началом текста
@@ -529,6 +605,34 @@ class Tools:
             
             if not final_report or final_report.startswith("Ошибка"):
                 logger.error(f"Synthesis returned error or empty: {final_report[:200]}")
+                await self.emit_status(
+                    __event_emitter__,
+                    "❌ Ошибка при генерации отчёта",
+                    True
+                )
+                if __event_emitter__ and final_report:
+                    await __event_emitter__({
+                        "type": "message",
+                        "data": {"content": f"\n\n{final_report}"}
+                    })
+                return ""
+
+            summary_header_re = re.compile(r"(?im)^\s*#{0,3}\s*Краткий ответ\s*$")
+            summary_matches = list(summary_header_re.finditer(final_report))
+            if len(summary_matches) >= 2:
+                final_report = final_report[:summary_matches[1].start()].rstrip()
+
+            sources_header_re = re.compile(r"(?im)^\s*#{0,3}\s*Источники\s*$")
+            m_sources = sources_header_re.search(final_report)
+            if m_sources:
+                final_report = final_report[:m_sources.start()].rstrip()
+
+            if source_lines and __event_emitter__:
+                sources_text = "\n\n## Источники\n" + "\n".join(source_lines)
+                await __event_emitter__({
+                    "type": "message",
+                    "data": {"content": sources_text}
+                })
             
             await self.emit_status(
                 __event_emitter__,
