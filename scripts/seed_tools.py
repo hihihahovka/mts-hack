@@ -227,6 +227,50 @@ def upload_function(token: str, func_id: str, name: str, description: str, filep
         return False
 
 
+def upload_model(token: str, model_id: str, name: str, description: str):
+    """Upload a custom model to OpenWebUI via REST API."""
+    payload = {
+        "id": model_id,
+        "name": name,
+        "base_model_id": "",
+        "meta": {
+            "description": description,
+            "profile_image_url": "/favicon.png",
+        },
+        "params": {}
+    }
+
+    headers = {"Authorization": f"Bearer {token}"}
+
+    try:
+        response = httpx.post(
+            f"{OPENWEBUI_URL}/api/v1/models/create",
+            json=payload,
+            headers=headers,
+            timeout=10,
+        )
+        if response.status_code == 200:
+            print(f"[seed] ✅ Model '{name}' created")
+            return True
+
+        if response.status_code in (400, 401, 403, 409):
+            response = httpx.post(
+                f"{OPENWEBUI_URL}/api/v1/models/model/update",
+                json=payload,
+                headers=headers,
+                timeout=10,
+            )
+            if response.status_code == 200:
+                print(f"[seed] 🔄 Model '{name}' updated")
+                return True
+
+        print(f"[seed] ❌ Failed to upload model '{name}': {response.status_code} {response.text}")
+        return False
+    except Exception as e:
+        print(f"[seed] ❌ Error uploading model '{name}': {e}")
+        return False
+
+
 def main():
     print("=" * 60)
     print("[seed] MTS AI Workspace — Auto Seed Script")
@@ -242,7 +286,7 @@ def main():
         print("[seed] WARNING: Could not authenticate. Skipping seed.")
         sys.exit(0)
 
-    # Step 3: Upload Tools
+    # Step 4: Upload Tools
     tools = [
         {
             "id": "image_gen_tool",
@@ -270,7 +314,7 @@ def main():
         else:
             print(f"[seed] ⚠️ Tool file not found: {tool['filepath']}")
 
-    # Step 4: Upload Filter Functions
+    # Step 5: Upload Filter Functions
     functions = [
         {
             "id": "auto_router_filter",

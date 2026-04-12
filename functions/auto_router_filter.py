@@ -26,17 +26,16 @@ log = logging.getLogger(__name__)
 class Filter:
     class Valves(BaseModel):
         """Configurable parameters visible in OpenWebUI Admin Panel."""
+
         enable_auto_routing: bool = Field(
-            default=True,
-            description="Enable automatic neural network model routing"
+            default=True, description="Enable automatic neural network model routing"
         )
         show_routing_badge: bool = Field(
-            default=True,
-            description="Show routing badge in response"
+            default=True, description="Show routing badge in response"
         )
         router_model: str = Field(
             default="",
-            description="The model to use for routing decisions. Leave blank to use system default TASK_MODEL."
+            description="The model to use for routing decisions. Leave blank to use system default TASK_MODEL.",
         )
 
     def __init__(self):
@@ -58,7 +57,9 @@ class Filter:
                     return " ".join(text_parts)
         return ""
 
-    def _has_modality(self, messages: list, files: list, file_type_keywords: list, file_exts: tuple) -> bool:
+    def _has_modality(
+        self, messages: list, files: list, file_type_keywords: list, file_exts: tuple
+    ) -> bool:
         # Check files array
         for file_item in files:
             t = file_item.get("type", "")
@@ -73,17 +74,24 @@ class Filter:
                 content = msg.get("content", "")
                 if isinstance(content, list):
                     for part in content:
-                        if part.get("type") == "image_url" and "image" in file_type_keywords:
+                        if (
+                            part.get("type") == "image_url"
+                            and "image" in file_type_keywords
+                        ):
                             return True
                 for file_item in msg.get("files", []):
                     if isinstance(file_item, dict):
                         t = file_item.get("type", "")
                         n = file_item.get("name", "").lower()
-                        if any(k in t for k in file_type_keywords) or n.endswith(file_exts):
+                        if any(k in t for k in file_type_keywords) or n.endswith(
+                            file_exts
+                        ):
                             return True
         return False
 
-    async def inlet(self, body: dict, __user__: dict = None, __request__: Request = None) -> dict:
+    async def inlet(
+        self, body: dict, __user__: dict = None, __request__: Request = None
+    ) -> dict:
         """
         INLET: Analyzes the user's message using an LLM and routes to the optimal model.
         """
@@ -102,44 +110,95 @@ class Filter:
         last_message = self._get_last_user_message(messages)
         files = body.get("files", [])
 
-        has_image = self._has_modality(messages, files, ["image"], (".png", ".jpg", ".jpeg", ".gif"))
-        has_audio = self._has_modality(messages, files, ["audio"], (".mp3", ".wav", ".ogg", ".m4a"))
-        has_text_file = self._has_modality(messages, files, ["text", "pdf", "document"], (".txt", ".pdf", ".docx", ".csv"))
+        has_image = self._has_modality(
+            messages, files, ["image"], (".png", ".jpg", ".jpeg", ".gif")
+        )
+        if has_image:
+            if "metadata" not in body:
+                body["metadata"] = {}
+            body["metadata"]["_routed_model"] = "qwen2.5-vl-72b"
+            body["model"] = "qwen2.5-vl-72b"
+            return body
+            
+        # Hardcode image generation routing
+        last_message_lower = last_message.lower()
+        if any(keyword in last_message_lower for keyword in ["нарисуй", "сгенерируй", "draw", "create an image", "изобрази"]):
+            if "metadata" not in body:
+                body["metadata"] = {}
+            body["metadata"]["_routed_model"] = "qwen-image"
+            body["model"] = "qwen-image"
+            return body
+
+        has_audio = self._has_modality(
+            messages, files, ["audio"], (".mp3", ".wav", ".ogg", ".m4a")
+        )
+        has_text_file = self._has_modality(
+            messages,
+            files,
+            ["text", "pdf", "document"],
+            (".txt", ".pdf", ".docx", ".csv"),
+        )
 
         models_dict = __request__.app.state.MODELS
         available_models = []
         for model_id, model_data in models_dict.items():
-            if "pipeline" in model_data and model_data["pipeline"].get("type") == "filter":
+            if (
+                "pipeline" in model_data
+                and model_data["pipeline"].get("type") == "filter"
+            ):
                 continue
-            available_models.append({
-                "id": model_id,
-                "name": model_data.get("name", model_id)
-            })
+            if model_id == "autorouting":
+                continue
 
-        prompt = f"""You are an advanced AI model routing system. DO NOT ANSWER the user's query. Your ONLY task is to pick the best model ID from the Available Models list to handle the user's request.
+            desc = model_data.get("info", {}).get("meta", {}).get("description", "")
+            capabilities = (
+                model_data.get("info", {}).get("meta", {}).get("capabilities", {})
+            )
+            if capabilities.get("vision"):
+                desc += " (Vision/Image capable VLM)"
 
-Rules:
-1. If the user attached an image ({has_image}), choose a Vision Language Model (VLM).
-2. If the user attached audio ({has_audio}), choose an ASR/Speech model.
-3. If the user asks to "generate image", "draw", "нарисуй", "сгенерируй изображение" or similar, choose a smart general model that has access to tools (like mws-gpt-alpha or equivalent). DO NOT try to pick DALL-E or Midjourney if they are not in the list!
-4. If the user attached a document/text file ({has_text_file}), choose a RAG model.
-5. Otherwise, choose a standard LLM for conversational text.
+            if not desc:
+                # Fallback to name keywords if there's no description
+                desc = (
+                    "vision vlm image"
+                    if any(
+                        x in model_id.lower() or x in model_data.get("name", "").lower()
+                        for x in ["vision", "vlm", "vl"]
+                    )
+                    else ""
+                )
+
+            available_models.append(
+                {
+                    "id": model_id,
+                    "name": model_data.get("name", model_id),
+                    "description": desc[:150],
+                }
+            )
+
+        prompt = f"""You are an advanced AI routing system. DO NOT ANSWER the user's query. Your ONLY task is to select the most appropriate model ID from the Available Models list for the user's request.
 
 Available Models:
 {json.dumps(available_models, indent=2)}
+
+Original Model Selected by User: {original_model}
+
+Rules for Routing:
+1. If the user explicitly asks to generate an image ("нарисуй", "сгенерируй", "draw", "create an image", "изобрази"), you MUST select an Image Generation model (e.g., ID containing 'image', 'lightning', 'qwen-image', 'dall-e').
+2. If the user attached an image (has_image={has_image}), you MUST select a Vision Language Model (VLM) (e.g., ID containing 'vl', 'vision', 'cotype-pro-vl', 'qwen2.5-vl').
+3. If the user attached audio (has_audio={has_audio}), you MUST select an Audio model (e.g., 'whisper', 'asr').
+4. For ANY other standard text, reasoning, or coding questions, you MUST simply return the Original Model ID ({original_model}) chosen by the user. Do not try to be smart and pick another text model.
+5. DO NOT hallucinate. Only output exactly one Model ID from the Available Models list (or the Original Model ID).
 
 <user_query_to_analyze>
 {last_message}
 </user_query_to_analyze>
 
-Provide your answer as a single string of the chosen model ID. NO EXCEPTIONS. Do not say "I'm sorry" or "Here is the model". JUST THE STRING ID.
+Provide your answer as a single string of the chosen model ID. NO EXCEPTIONS. JUST THE STRING ID.
 """
         task_model_id = self.valves.router_model
-        if not task_model_id:
-            task_model_id = __request__.app.state.config.TASK_MODEL
-        
         if not task_model_id or task_model_id not in models_dict:
-            task_model_id = available_models[0]["id"] if available_models else None
+            task_model_id = original_model
 
         if not task_model_id:
             return body
@@ -148,50 +207,58 @@ Provide your answer as a single string of the chosen model ID. NO EXCEPTIONS. Do
             "model": task_model_id,
             "messages": [{"role": "user", "content": prompt}],
             "stream": False,
-            "metadata": {
-                "task": "MODEL_AUTOROUTING",
-                "bypass_filter": True
-            }
+            "metadata": {"task": "MODEL_AUTOROUTING", "bypass_filter": True},
         }
 
         try:
-            response = await generate_chat_completion(__request__, form_data=payload, user=__user__, bypass_filter=True)
-            if 'choices' in response and len(response['choices']) > 0:
-                result_text = response['choices'][0]['message']['content'].strip()
-                
-                # Extract the ID
-                match = re.search(r'[\w.-]+', result_text)
-                if match:
-                    selected_id = match.group(0)
-                    if selected_id in models_dict:
-                        self._routed_model = selected_id
-                        body["model"] = selected_id
-                        return body
-                        
-                for m in available_models:
-                    if m["id"] == result_text:
-                        self._routed_model = result_text
-                        body["model"] = result_text
-                        return body
-                        
+            response = await generate_chat_completion(
+                __request__, form_data=payload, user=__user__, bypass_filter=True
+            )
+            if "choices" in response and len(response["choices"]) > 0:
+                result_text = response["choices"][0]["message"]["content"].strip()
+
+                # Clean up <think> blocks common in Deepseek R1
+                result_text = re.sub(
+                    r"<think>.*?</think>", "", result_text, flags=re.DOTALL
+                ).strip()
+
+                # Match the longest model ID present in the generated text
+                sorted_models = sorted(
+                    available_models, key=lambda x: len(x["id"]), reverse=True
+                )
+
+                routed_id = None
+                for m in sorted_models:
+                    if m["id"] in result_text:
+                        routed_id = m["id"]
+                        break
+
+                if routed_id:
+                    if "metadata" not in body:
+                        body["metadata"] = {}
+                    body["metadata"]["_routed_model"] = routed_id
+                    body["model"] = routed_id
+                    return body
+
         except Exception as e:
             log.error(f"Autorouting LLM selection error: {e}")
 
         # Fallback if LLM fails or no match found
-        if original_model == "autorouting":
-            fallback = available_models[0]["id"] if available_models else original_model
-            self._routed_model = fallback
-            body["model"] = fallback
-        else:
-            self._routed_model = original_model
-            
+        if "metadata" not in body:
+            body["metadata"] = {}
+        body["metadata"]["_routed_model"] = original_model
+        body["model"] = original_model
+
         return body
 
-    async def outlet(self, body: dict, __user__: dict = None, __event_emitter__=None) -> dict:
+    async def outlet(
+        self, body: dict, __user__: dict = None, __event_emitter__=None
+    ) -> dict:
         """
         OUTLET: Injects a routing badge showing which model was used.
         """
-        if not self.valves.show_routing_badge or not self._routed_model:
+        routed_model = body.get("metadata", {}).get("_routed_model", "")
+        if not self.valves.show_routing_badge or not routed_model:
             return body
 
         messages = body.get("messages", [])
@@ -202,9 +269,5 @@ Provide your answer as a single string of the chosen model ID. NO EXCEPTIONS. Do
             if msg.get("role") == "assistant":
                 content = msg.get("content", "")
                 if isinstance(content, str) and content:
-                    badge = f"\n\n---\n🤖 *{self._routed_model}* — {self._routing_reason}\n"
-                    msg["content"] = content + badge
-                break
-
-        self._routed_model = ""
+                    badge = f"\n\n---\n🤖 *{routed_model}* — {self._routing_reason}\n"
         return body
