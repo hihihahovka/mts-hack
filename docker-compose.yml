@@ -26,9 +26,12 @@ services:
       - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY:-supersecretkey123}
       - WEBUI_AUTH=${WEBUI_AUTH:-false}
       - ENABLE_SIGNUP=true
+      - DATABASE_URL=postgresql://openwebui:openwebui_secret@postgres:5432/openwebui
     volumes:
       - open-webui-data:/app/backend/data
     depends_on:
+      postgres:
+        condition: service_healthy
       ollama:
         condition: service_started
       searxng:
@@ -53,6 +56,8 @@ services:
       - postgres-data:/var/lib/postgresql/data
     ports:
       - "5433:5432"
+    networks:
+      - mts-net
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U openwebui"]
