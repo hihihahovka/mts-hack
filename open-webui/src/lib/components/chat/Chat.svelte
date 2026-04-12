@@ -2085,14 +2085,19 @@
 			return fileExists;
 		});
 
-		let files = structuredClone(chatFiles);
-		files.push(
-			...(userMessage?.files ?? []).filter(
-				(item) =>
-					['doc', 'text', 'note', 'chat', 'collection'].includes(item.type) ||
-					(item.type === 'file' && !(item?.content_type ?? '').startsWith('image/'))
-			)
+		const currentMessageFiles = (userMessage?.files ?? []).filter(
+			(item) =>
+				['doc', 'text', 'note', 'chat', 'collection'].includes(item.type) ||
+				(item.type === 'file' && !(item?.content_type ?? '').startsWith('image/'))
 		);
+
+		let files = [];
+		if (currentMessageFiles.length > 0) {
+			files = structuredClone(currentMessageFiles);
+		} else {
+			files = structuredClone(chatFiles);
+		}
+
 		// Remove duplicates
 		files = files.filter(
 			(item, index, array) =>
