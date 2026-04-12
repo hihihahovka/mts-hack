@@ -8,7 +8,14 @@ server:
 search:
   safe_search: 0
   autocomplete: ""
-  default_lang: "ru-RU"
+  default_lang: "all"
+  languages:
+    - ru-RU
+    - en-US
+    - en-GB
+  formats:
+    - html
+    - json
 
 engines:
   - name: google
