@@ -12,7 +12,6 @@ services:
     environment:
       - OPENAI_API_BASE_URL=https://api.gpt.mws.ru/v1
       - OPENAI_API_KEY=${MWS_API_KEY}
-      - OLLAMA_BASE_URL=http://ollama:11434
       - RAG_EMBEDDING_ENGINE=openai
       - RAG_EMBEDDING_MODEL=bge-m3
       - RAG_EMBEDDING_OPENAI_BATCH_SIZE=32
@@ -32,8 +31,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      ollama:
-        condition: service_started
       searxng:
         condition: service_started
       whisper-api:
@@ -70,19 +67,6 @@ services:
       timeout: 5s
       retries: 5
 
-  # ============================================================
-  # Ollama
-  # ============================================================
-  ollama:
-    image: ollama/ollama:latest
-    container_name: ollama-${ENV_NAME:-local}
-    ports:
-      - "${OLLAMA_PORT:-11434}:11434"
-    volumes:
-      - ollama-data:/root/.ollama
-    networks:
-      - mts-net
-    restart: unless-stopped
 
   # ============================================================
   # SearXNG
@@ -138,5 +122,4 @@ networks:
 
 volumes:
   open-webui-data:
-  ollama-data:
   postgres-data:
