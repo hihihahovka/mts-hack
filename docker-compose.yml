@@ -26,9 +26,12 @@ services:
       - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY:-supersecretkey123}
       - WEBUI_AUTH=${WEBUI_AUTH:-true}
       - ENABLE_SIGNUP=true
+      - DATABASE_URL=postgresql://openwebui:openwebui_secret@postgres:5432/openwebui
     volumes:
       - open-webui-data:/app/backend/data
     depends_on:
+      postgres:
+        condition: service_healthy
       ollama:
         condition: service_started
       searxng:
@@ -40,7 +43,30 @@ services:
     restart: unless-stopped
 
   # ============================================================
-  # Ollama — Local VLM (Moondream 2B)
+  # PostgreSQL — Database
+  # ============================================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres-${ENV_NAME:-local}
+    environment:
+      - POSTGRES_USER=openwebui
+      - POSTGRES_PASSWORD=openwebui_secret
+      - POSTGRES_DB=openwebui
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "${DB_PORT:-5432}:5432" # Сделали порт переменной!
+    networks:
+      - mts-net
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U openwebui" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ============================================================
+  # Ollama
   # ============================================================
   ollama:
     image: ollama/ollama:latest
@@ -54,7 +80,7 @@ services:
     restart: unless-stopped
 
   # ============================================================
-  # SearXNG — Meta Search Engine
+  # SearXNG
   # ============================================================
   searxng:
     image: searxng/searxng:latest
@@ -70,7 +96,7 @@ services:
     restart: unless-stopped
 
   # ============================================================
-  # Whisper API — Speech-to-Text
+  # Whisper API
   # ============================================================
   whisper-api:
     build:
@@ -84,7 +110,7 @@ services:
     restart: unless-stopped
 
   # ============================================================
-  # Seed Service — Auto-loads Tools/Functions
+  # Seed Service
   # ============================================================
   seed:
     build:
@@ -103,11 +129,9 @@ services:
 
 networks:
   mts-net:
-    name: mts-net-${ENV_NAME:-local}
     driver: bridge
 
 volumes:
   open-webui-data:
-    name: open-webui-data-${ENV_NAME:-local}
   ollama-data:
-    name: ollama-data-${ENV_NAME:-local}
+  postgres-data:
