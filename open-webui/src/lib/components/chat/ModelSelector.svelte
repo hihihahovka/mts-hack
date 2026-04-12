@@ -133,16 +133,14 @@
 	>
 		<button class="hover:text-gray-800 dark:hover:text-gray-200" on:click={saveDefaultModel}> {$i18n.t('Set as default')}</button>
 		
-		{#if $user?.role === 'admin'}
-			<button class="hover:text-gray-800 dark:hover:text-gray-200 mt-0.5 text-blue-500 font-medium" 
-				on:click={() => { 
-					selectedModels = ['autorouting']; 
-					saveDefaultModel();
-					toast.success('Режим Autorouting включен');
-				}}>
-				⚡ Авторутинг
-			</button>
-		{/if}
+		<button class="hover:text-gray-800 dark:hover:text-gray-200 mt-0.5 text-blue-500 font-medium" 
+			on:click={() => { 
+				selectedModels = ['autorouting']; 
+				saveDefaultModel();
+				toast.success('Режим Autorouting включен');
+			}}>
+			⚡ Авторутинг
+		</button>
 	</div>
 {/if}
 

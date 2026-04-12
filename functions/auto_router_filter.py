@@ -118,7 +118,7 @@ class Filter:
 Rules:
 1. If the user attached an image ({has_image}), choose a Vision Language Model (VLM).
 2. If the user attached audio ({has_audio}), choose an ASR/Speech model.
-3. If the user asks to "generate image", "draw", "нарисуй", "сгенерируй изображение" or similar, YOU MUST choose an Image Generation model (like DALL-E, if present).
+3. If the user asks to "generate image", "draw", "нарисуй", "сгенерируй изображение" or similar, choose a smart general model that has access to tools (like mws-gpt-alpha or equivalent). DO NOT try to pick DALL-E or Midjourney if they are not in the list!
 4. If the user attached a document/text file ({has_text_file}), choose a RAG model.
 5. Otherwise, choose a standard LLM for conversational text.
 
