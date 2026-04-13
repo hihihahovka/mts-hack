@@ -147,19 +147,35 @@ class Filter:
         files = body.get("files", [])
         last_message_lower = last_message.lower()
 
-        # Ключевые слова для определения интентов
+        # Ключевые слова для определения интентов (РУ + EN)
         img_keywords = [
+            # Русский
             "нарисуй", "сделай картинку", "сгенерируй картинку", "сгенерировать картинку",
-            "сгенерируй изображение", "сгенерировать изображение", "draw an image", 
-            "create an image", "изобрази"
+            "сгенерируй изображение", "сгенерировать изображение", "изобрази",
+            # English
+            "draw", "generate image", "generate a picture", "create image",
+            "create a picture", "make an image", "make a picture",
+            "paint", "render image", "visualize", "illustrate",
         ]
         code_keywords = [
-            "скрипт", "python", "javascript", "html", "css", "c++", "java ", "закодить", 
-            "напиши код", "ошибка в коде", "напиши функцию"
+            # Русский
+            "скрипт", "закодить", "напиши код", "ошибка в коде", "напиши функцию",
+            # Языки программирования (одинаковый код для RU+EN)
+            "python", "javascript", "html", "css", "c++", "java ",
+            "typescript", "golang", "rust", "kotlin", "swift", "php",
+            # English
+            "write code", "fix the code", "write a function", "write a script",
+            "debug", "refactor", "implement", "coding", "programming",
+            "write a class", "write a program",
         ]
         reasoning_keywords = [
-            "подумай", "логика", "математика", "реши задачу", "докажи", "головоломка", 
-            "посчитай", "уравнение", "как решить"
+            # Русский
+            "подумай", "логика", "математика", "реши задачу", "докажи",
+            "головоломка", "посчитай", "уравнение", "как решить",
+            # English
+            "think step by step", "reason", "logic", "mathematics", "math",
+            "solve", "prove", "puzzle", "calculate", "equation", "how to solve",
+            "step by step", "chain of thought",
         ]
 
         routed_id = None
