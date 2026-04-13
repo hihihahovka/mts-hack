@@ -81,11 +81,17 @@
             background: rgba(255,255,255,0.1);
         }
         
+        @keyframes mtsSlideRight {
+            from { opacity: 0; transform: translateX(-10px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+        @keyframes mtsSlideDown {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
         .mts-popup-menu {
             position: absolute;
-            top: 100%;
-            left: 0;
-            margin-top: 8px;
             width: 260px;
             background: white;
             border-radius: 0.75rem;
@@ -104,6 +110,7 @@
         }
         .mts-popup-menu.show {
             display: flex;
+            animation: mtsSlideRight 0.2s ease forwards;
         }
         
         .mts-menu-item {
@@ -131,9 +138,6 @@
         .mts-submenu {
             display: none;
             position: absolute;
-            left: 100%;
-            top: 0;
-            margin-left: 4px;
             width: 200px;
             background: white;
             border-radius: 0.75rem;
@@ -149,6 +153,7 @@
         }
         .mts-submenu.show {
             display: flex;
+            animation: mtsSlideDown 0.2s ease forwards;
         }
 
         .mts-item-wrapper {
@@ -267,11 +272,11 @@
         const isShowing = mainMenu.classList.contains('show');
         
         if (!isShowing) {
-            // Позиционируем меню ровно под кнопкой шестеренки
+            // Позиционируем меню ровно справа от кнопки шестеренки
             const rect = gearBtn.getBoundingClientRect();
             mainMenu.style.position = 'fixed';
-            mainMenu.style.top = (rect.bottom + 8) + 'px';
-            mainMenu.style.left = rect.left + 'px';
+            mainMenu.style.top = rect.top + 'px';
+            mainMenu.style.left = (rect.right + 12) + 'px';
             mainMenu.classList.add('show');
         } else {
             mainMenu.classList.remove('show');
@@ -286,15 +291,16 @@
         const isShowing = submenu.classList.contains('show');
         
         if (!isShowing) {
-            // Позиционируем подменю ровно справа от кнопки "Автопереключение"
+            // Позиционируем подменю ровно под кнопкой "Автопереключение"
             const rect = arBtn.getBoundingClientRect();
             submenu.style.position = 'fixed';
-            submenu.style.top = rect.top + 'px';
-            // Если слишком близко к правому краю, открываем влево
-            if (rect.right + 210 > window.innerWidth) {
-                submenu.style.left = (rect.left - 204) + 'px';
+            submenu.style.top = (rect.bottom + 6) + 'px';
+            
+            // Если слишком близко к правому краю, сдвигаем левее
+            if (rect.left + 200 > window.innerWidth) {
+                submenu.style.left = (window.innerWidth - 210) + 'px';
             } else {
-                submenu.style.left = (rect.right + 4) + 'px';
+                submenu.style.left = rect.left + 'px';
             }
             submenu.classList.add('show');
             arWrapper.classList.add('active');
