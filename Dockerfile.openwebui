@@ -15,9 +15,9 @@ COPY themes/theme-selector.js /app/build/static/theme-selector.js
 COPY themes/autorouting-selector.js /app/build/static/autorouting-selector.js
 
 # Копируем JS-виджет категорий моделей
-COPY themes/model-categories.js /app/build/static/model-categories.js
+COPY themes/model-tags.js /app/build/static/model-tags.js
 
 # Инжектим скрипт переключателя тем и авторутинга в <head> HTML
 # 1) Ранний инлайн-скрипт для восстановления темы до рендера (без FOUC)
 # 2) Отложенная загрузка виджетов
-RUN sed -i 's|</head>|<script>var t=localStorage.getItem("mts-theme");if(t)document.documentElement.setAttribute("data-theme",t);</script><script defer src="/static/theme-selector.js"></script><script defer src="/static/autorouting-selector.js"></script><script defer src="/static/model-categories.js"></script></head>|' /app/build/index.html
+RUN sed -i 's|</head>|<script>var t=localStorage.getItem("mts-theme");if(t)document.documentElement.setAttribute("data-theme",t);</script><script defer src="/static/theme-selector.js"></script><script defer src="/static/autorouting-selector.js"></script><script src="/static/model-tags.js"></script></head>|' /app/build/index.html
