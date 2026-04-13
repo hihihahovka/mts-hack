@@ -1,236 +1,108 @@
 /**
- * MTS AI Workspace — Model Category Tabs
- * Injects category tabs into the model selector dropdown.
- * Replaces the default "Все" / "Внешнее" tabs with categories.
+ * MTS AI Workspace — Model Category Tags
+ * =======================================
+ * Перехватывает /api/models и инжектирует категориальные теги в каждую модель.
+ * Open WebUI сам рендерит теги как фильтр-кнопки через существующий Svelte-компонент.
+ * Скрывает лишние нативные кнопки "Внешнее / Локальное / Прямое".
  */
 (function () {
   'use strict';
 
-  // ─── Категории: keywords в нижнем регистре, order — тяжёлые первыми ──────────
-  const CATEGORIES = [
-    {
-      id: 'text',
-      label: '📝 Текст',
-      keywords: ['glm-4', 'gpt-oss', 'llama', 'mistral', 'qwen2.5-72b', 'qwen3-32b'],
-    },
-    {
-      id: 'reasoning',
-      label: '🧠 Логика',
-      keywords: ['qwq', 'deepseek-r1', 'deepseek-r', 'o1', 'o3'],
-    },
-    {
-      id: 'code',
-      label: '💻 Код',
-      keywords: ['coder', 'codestral'],
-    },
-    {
-      id: 'vision',
-      label: '👁 Зрение',
-      keywords: ['-vl', 'vision', 'cotype'],
-    },
-    {
-      id: 'image',
-      label: '🖼 Картинки',
-      keywords: ['image', 'dall-e', 'flux', 'lightning'],
-    },
-    {
-      id: 'audio',
-      label: '🎤 Аудио',
-      keywords: ['whisper', 'asr', 'speech'],
-    },
+  // Правила определения категории по ID модели (порядок важен — первое совпадение)
+  const RULES = [
+    { tag: 'Логика',   keywords: ['qwq', 'deepseek-r1', 'r1-distill', 'o1-', 'o3-'] },
+    { tag: 'Код',      keywords: ['coder', 'codestral'] },
+    { tag: 'Зрение',   keywords: ['-vl-', 'vl-72', '-vl', 'vision', 'cotype'] },
+    { tag: 'Картинки', keywords: ['image', 'dall-e', 'flux', 'lightning'] },
+    { tag: 'Аудио',    keywords: ['whisper', 'asr', 'stt', 'speech'] },
+    { tag: 'Текст',    keywords: [] }, // catch-all — всё остальное
   ];
 
-  // ─── Стили ───────────────────────────────────────────────────────────────────
-  const STYLE = `
-    /* Скрываем оригинальные вкладки "Все" / "Внешнее" */
-    .mts-hide-original-tabs { display: none !important; }
-
-    #mts-cat-tabs {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 4px;
-      padding: 6px 8px 4px;
-      flex-shrink: 0;
+  function tagForModel(modelId) {
+    const id = (modelId || '').toLowerCase();
+    for (const rule of RULES) {
+      if (rule.keywords.length === 0) return rule.tag; // catch-all
+      if (rule.keywords.some(k => id.includes(k))) return rule.tag;
     }
-    .mts-cat-tab {
-      padding: 3px 10px;
-      border-radius: 999px;
-      font-size: 0.72rem;
-      font-weight: 500;
-      border: 1px solid transparent;
-      cursor: pointer;
-      background: transparent;
-      color: #6b7280;
-      white-space: nowrap;
-      transition: all 0.15s;
-      font-family: inherit;
-      line-height: 1.4;
-    }
-    .mts-cat-tab:hover {
-      background: #f3f4f6;
-      color: #111827;
-    }
-    html.dark .mts-cat-tab:hover {
-      background: #374151;
-      color: #f9fafb;
-    }
-    .mts-cat-tab.active {
-      background: #e0e7ff;
-      color: #4338ca;
-      border-color: #c7d2fe;
-    }
-    html.dark .mts-cat-tab.active {
-      background: #312e81;
-      color: #a5b4fc;
-      border-color: #4338ca;
-    }
-  `;
-
-  let activeCategory = 'all';
-  let isFiltering = false; // Защита от рекурсии
-
-  // ─── Ищем список моделей ─────────────────────────────────────────────────────
-  // Open WebUI рендерит каждую модель как кнопку внутри прокручиваемого div.
-  // Ищем контейнер по паттерну: div с overflow-y-auto внутри дропдауна.
-  function getModelContainer() {
-    // Ищем прокручиваемый контейнер списка моделей
-    const scrollers = document.querySelectorAll('[data-state="open"] [class*="overflow-y-auto"], [class*="overflow-y-auto"]');
-    for (const el of scrollers) {
-      // Если внутри есть кнопки с именами моделей — это наш контейнер
-      const buttons = el.querySelectorAll('button');
-      if (buttons.length >= 2) return el;
-    }
-    return null;
+    return 'Текст';
   }
 
-  function getModelItems(container) {
-    if (!container) return [];
-    // Берём прямых потомков type-button или div с кнопкой
-    return [...container.querySelectorAll(':scope > *')].filter(el => {
-      // Каждая модель — это строка (div/li) с кнопкой или сама кнопка
-      return el.textContent.trim().length > 0 && !el.id.includes('mts');
-    });
-  }
+  // ─── Перехват /api/models ────────────────────────────────────────────────────
+  const _origFetch = window.fetch;
 
-  // ─── Фильтрация ─────────────────────────────────────────────────────────────
-  function filterModels(catId) {
-    if (isFiltering) return;
-    isFiltering = true;
+  window.fetch = async function (...args) {
+    const response = await _origFetch.apply(this, args);
 
     try {
-      const container = getModelContainer();
-      if (!container) return;
+      const url = typeof args[0] === 'string' ? args[0]
+        : args[0] instanceof Request ? args[0].url : '';
 
-      const items = getModelItems(container);
-      if (!items.length) return;
+      // Только точный /api/models (без вложенных путей вроде /api/models/base)
+      if (/\/api\/models\/?(\?[^]*)?$/.test(url)) {
+        const clone = response.clone();
+        let data;
+        try { data = await clone.json(); } catch (_) { return response; }
 
-      if (catId === 'all') {
-        items.forEach(el => (el.style.display = ''));
-        isFiltering = false;
-        return;
+        // Список может быть корневым массивом или в поле .data
+        const list = Array.isArray(data) ? data
+          : (Array.isArray(data?.data) ? data.data : null);
+
+        if (!list) return response;
+
+        // Добавляем тег категории каждой модели
+        list.forEach(model => {
+          const modelId = model.id || model.name || '';
+          const catTag = tagForModel(modelId);
+
+          if (!model.info) model.info = {};
+          if (!model.info.meta) model.info.meta = {};
+          const existing = Array.isArray(model.info.meta.tags) ? model.info.meta.tags : [];
+
+          // Не дублируем тег
+          if (!existing.some(t => t.name === catTag)) {
+            model.info.meta.tags = [...existing, { name: catTag }];
+          }
+        });
+
+        const newData = Array.isArray(data) ? list : { ...data, data: list };
+
+        // Строим заголовки без content-length (тело изменилось — длина другая)
+        const newHeaders = new Headers();
+        response.headers.forEach((v, k) => {
+          if (k.toLowerCase() !== 'content-length') newHeaders.set(k, v);
+        });
+
+        return new Response(JSON.stringify(newData), {
+          status: response.status,
+          statusText: response.statusText,
+          headers: newHeaders,
+        });
       }
+    } catch (_) { /* при любой ошибке возвращаем оригинальный ответ */ }
 
-      const cat = CATEGORIES.find(c => c.id === catId);
-      if (!cat) { isFiltering = false; return; }
+    return response;
+  };
 
-      const matched = [];
-      const unmatched = [];
+  // ─── Скрываем нативные кнопки "Внешнее / Локальное / Прямое" ────────────────
+  const HIDE_LABELS = new Set([
+    'external', 'внешнее',
+    'local', 'локальное',
+    'direct', 'прямое',
+  ]);
 
-      items.forEach(el => {
-        const text = el.textContent.trim().toLowerCase();
-        const matches = cat.keywords.some(kw => text.includes(kw.toLowerCase()));
-        if (matches) {
-          el.style.display = '';
-          matched.push(el);
-        } else {
-          el.style.display = 'none';
-          unmatched.push(el);
-        }
-      });
-
-      // Перемещаем matched в начало (тяжёлые — по алфавиту/порядку появления, не меняем)
-      matched.forEach(el => container.prepend(el));
-
-    } finally {
-      isFiltering = false;
-    }
-  }
-
-  // ─── Инжектируем вкладки ─────────────────────────────────────────────────────
-  function injectCategoryTabs() {
-    // Уже инжектировано?
-    if (document.getElementById('mts-cat-tabs')) return;
-
-    // Находим таб-бар с "Все" / "Внешнее"
-    const allButtons = [...document.querySelectorAll('button')];
-    const tabAllBtn = allButtons.find(b => {
-      const t = b.textContent.trim();
-      return (t === 'Все' || t === 'All') && b.offsetParent !== null;
+  const uiObserver = new MutationObserver(() => {
+    document.querySelectorAll('button[aria-pressed]').forEach(btn => {
+      const label = btn.textContent.trim().toLowerCase();
+      if (HIDE_LABELS.has(label)) btn.style.display = 'none';
     });
-    if (!tabAllBtn) return;
-
-    const tabBar = tabAllBtn.parentElement;
-    if (!tabBar) return;
-
-    // Скрываем оригинальные вкладки
-    [...tabBar.children].forEach(child => {
-      child.classList.add('mts-hide-original-tabs');
-    });
-
-    // Создаём наш блок
-    const catTabs = document.createElement('div');
-    catTabs.id = 'mts-cat-tabs';
-
-    // "Все" — первая
-    catTabs.appendChild(makeTab('all', '✦ Все', true));
-    CATEGORIES.forEach(cat => catTabs.appendChild(makeTab(cat.id, cat.label, false)));
-
-    // Вставляем в тот же tabBar (вместо скрытых)
-    tabBar.appendChild(catTabs);
-  }
-
-  function makeTab(id, label, active) {
-    const btn = document.createElement('button');
-    btn.className = 'mts-cat-tab' + (active ? ' active' : '');
-    btn.dataset.catId = id;
-    btn.textContent = label;
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      e.preventDefault();
-      activeCategory = id;
-      document.querySelectorAll('.mts-cat-tab').forEach(b =>
-        b.classList.toggle('active', b.dataset.catId === id)
-      );
-      filterModels(id);
-    });
-    return btn;
-  }
-
-  // ─── Стили один раз ──────────────────────────────────────────────────────────
-  function injectStyles() {
-    if (document.getElementById('mts-cat-style')) return;
-    const style = document.createElement('style');
-    style.id = 'mts-cat-style';
-    style.textContent = STYLE;
-    document.head.appendChild(style);
-  }
-
-  // ─── MutationObserver — только следим за добавлением нот в DOM, не вмешиваемся ──
-  const observer = new MutationObserver(() => {
-    if (isFiltering) return; // не реагируем на наши собственные изменения
-    injectCategoryTabs();
-    // Применяем текущий фильтр если он не "all"
-    if (activeCategory !== 'all') filterModels(activeCategory);
   });
-
-  injectStyles();
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => {
-      observer.observe(document.body, { childList: true, subtree: true });
+      uiObserver.observe(document.body, { childList: true, subtree: true });
     });
   } else {
-    observer.observe(document.body, { childList: true, subtree: true });
+    uiObserver.observe(document.body, { childList: true, subtree: true });
   }
 
 })();
