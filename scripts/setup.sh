@@ -2,7 +2,7 @@
 # ============================================================
 # MTS AI Workspace — Setup Script
 # ============================================================
-# Run this after docker-compose up to pull VLM model
+# Запускается после docker-compose up для дополнительной настройки
 # Usage: ./scripts/setup.sh
 
 set -e
@@ -11,20 +11,20 @@ echo "============================================"
 echo "  MTS AI Workspace — Initial Setup"
 echo "============================================"
 
-# Wait for Ollama to be ready
-echo "[setup] Waiting for Ollama..."
-until docker exec ollama ollama list &>/dev/null; do
-    sleep 2
-done
-echo "[setup] Ollama is ready!"
+# Проверяем, что все контейнеры запущены
+echo "[setup] Проверяю состояние контейнеров..."
+docker compose ps
 
-# Pull Moondream 2B for VLM (image analysis)
-echo "[setup] Pulling Moondream 2B model for Vision..."
-docker exec ollama ollama pull moondream
-echo "[setup] ✅ Moondream 2B downloaded"
+# Проверяем seed логи
+echo ""
+echo "[setup] Логи seed-контейнера:"
+docker compose logs seed 2>/dev/null || echo "[setup] Seed ещё не запускался"
 
 echo ""
 echo "============================================"
-echo "  ✅ Setup complete!"
-echo "  Open http://localhost:8080"
+echo "  ✅ Проверка завершена!"
+echo "  Откройте http://localhost:8080"
+echo ""
+echo "  Admin: admin@mts-ai.local"
+echo "  Пароль: adminpassword123"
 echo "============================================"
