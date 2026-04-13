@@ -108,14 +108,23 @@ class Filter:
 
         original_model = body.get("model", "")
 
-        # Skip routing for pipe models (e.g. "image_gen_pipe.qwen-image")
-        # The user explicitly chose a pipe — don't override their selection
-        if "." in original_model:
-            log.info(f"[AutoRouter] Skipping routing for pipe model: {original_model}")
-            return body
-
         last_message = self._get_last_user_message(messages)
         files = body.get("files", [])
+
+        last_message_lower = last_message.lower()
+        
+        # Hardcode image generation routing FIRST (safe keywords)
+        img_keywords = [
+            "нарисуй", "сделай картинку", "сгенерируй картинку", "сгенерировать картинку",
+            "сгенерируй изображение", "сгенерировать изображение", "draw an image", 
+            "create an image", "изобрази"
+        ]
+        if any(keyword in last_message_lower for keyword in img_keywords) and "код" not in last_message_lower:
+            if "metadata" not in body:
+                body["metadata"] = {}
+            body["metadata"]["_routed_model"] = "image_gen_pipe.qwen-image"
+            body["model"] = "image_gen_pipe.qwen-image"
+            return body
 
         has_image = self._has_modality(
             messages, files, ["image"], (".png", ".jpg", ".jpeg", ".gif")
@@ -125,15 +134,6 @@ class Filter:
                 body["metadata"] = {}
             body["metadata"]["_routed_model"] = "qwen2.5-vl-72b"
             body["model"] = "qwen2.5-vl-72b"
-            return body
-            
-        # Hardcode image generation routing
-        last_message_lower = last_message.lower()
-        if any(keyword in last_message_lower for keyword in ["нарисуй", "сгенерируй", "сгенерировать", "draw", "create an image", "изобрази", "сделай картинку", "генерация", "генерации"]):
-            if "metadata" not in body:
-                body["metadata"] = {}
-            body["metadata"]["_routed_model"] = "image_gen_pipe.qwen-image"
-            body["model"] = "image_gen_pipe.qwen-image"
             return body
 
         has_audio = self._has_modality(
@@ -145,6 +145,15 @@ class Filter:
             ["text", "pdf", "document"],
             (".txt", ".pdf", ".docx", ".csv"),
         )
+        
+        # Hardcode coding model routing (only if strongly indicated in the text)
+        code_keywords = ["скрипт", "python", "javascript", "html", "css", "c++", "java ", "закодить", "напиши код", "ошибка в коде"]
+        if any(keyword in last_message_lower for keyword in code_keywords):
+            if "metadata" not in body:
+                body["metadata"] = {}
+            body["metadata"]["_routed_model"] = "qwen3-coder-480b-a35b"
+            body["model"] = "qwen3-coder-480b-a35b"
+            return body
 
         models_dict = __request__.app.state.MODELS
         available_models = []
@@ -194,8 +203,9 @@ Rules for Routing:
 1. If the user explicitly asks to generate an image ("нарисуй", "сгенерируй", "сгенерировать", "draw", "create an image", "изобрази"), you MUST select an Image Generation model (e.g., ID containing 'image', 'lightning', 'qwen-image', 'dall-e').
 2. If the user attached an image (has_image={has_image}), you MUST select a Vision Language Model (VLM) (e.g., ID containing 'vl', 'vision', 'cotype-pro-vl', 'qwen2.5-vl').
 3. If the user attached audio (has_audio={has_audio}), you MUST select an Audio model (e.g., 'whisper', 'asr').
-4. For ANY other standard text, reasoning, or coding questions, you MUST simply return the Original Model ID ({original_model}) chosen by the user. Do not try to be smart and pick another text model.
-5. DO NOT hallucinate. Only output exactly one Model ID from the Available Models list (or the Original Model ID).
+4. If the user explicitly asks to write, explain, review, or debug code, or mentions programming, you MUST select a Coding model (e.g., ID containing 'coder', 'qwen3-coder').
+5. For ANY other standard text or reasoning questions: if the Original Model ({original_model}) is NOT a standard text model (e.g. if it's an image or audio model), you MUST select a good standard text model like 'deepseek-r1-distill-qwen-32b', 'llama-3.3-70b-instruct' or 'qwen3-32b'. If {original_model} IS already a standard text model, just return {original_model}.
+6. DO NOT hallucinate. Only output exactly one Model ID from the Available Models list.
 
 <user_query_to_analyze>
 {last_message}
@@ -279,5 +289,6 @@ Provide your answer as a single string of the chosen model ID. NO EXCEPTIONS. JU
             if msg.get("role") == "assistant":
                 content = msg.get("content", "")
                 if isinstance(content, str) and content:
-                    badge = f"\n\n---\n🤖 *{routed_model}* — {self._routing_reason}\n"
+                    msg["content"] += f"\n\n---\n🤖 *{routed_model}* — {self._routing_reason}\n"
+                    break
         return body
