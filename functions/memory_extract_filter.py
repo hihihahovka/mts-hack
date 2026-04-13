@@ -6,15 +6,15 @@ about the user from the conversation and saves it into OpenWebUI's built-in memo
 
 THREE SCOPES:
   1. GLOBAL (chats without folder):
-     [IDENTITY], [USER], [FEEDBACK] = SQL only (core memory)
+     [IDENTITY], [USER], [FEEDBACK] = SQL only (always global)
      [PROJECT] = SQL + Vector DB (semantic episodic)
 
-  2. FOLDER (chats inside a folder — isolated from global):
-     [IDENTITY:folder:XYZ], [USER:folder:XYZ], [FEEDBACK:folder:XYZ] = SQL only
-     [PROJECT:folder:XYZ] = SQL + Vector DB (collection: folder-memory-{user_id}-{folder_id})
+  2. FOLDER (chats inside a folder — PROJECT isolated, core facts cascade):
+     [IDENTITY], [USER], [FEEDBACK] = always global, cascade into all folders
+     [PROJECT:folder:XYZ] = SQL + Vector DB (collection: folder-{md5}, STRICTLY isolated)
 
   3. LOCAL (per-chat — decisions, solutions, architecture):
-     [LOCAL:chat:ABC] = SQL + Vector DB (collection: local-memory-{chat_id})
+     [LOCAL:chat:ABC] = SQL + Vector DB (single collection: local-{md5(user_id)}, filtered by chat_id)
      Extracted from BOTH user + AI messages (only when user confirms AI's output)
      No compaction — grows unbounded, retrieved via semantic RAG
 
@@ -24,6 +24,7 @@ DEADLOCK AVOIDANCE:
 """
 
 import datetime
+import hashlib
 import json
 import logging
 import os
@@ -163,16 +164,36 @@ class Filter:
         scope = self._get_scope_prefix(folder_id)
         return f"[{category}{scope}] {fact}"
 
+    def _safe_collection_name(self, prefix: str, *ids: str) -> str:
+        """Build a ChromaDB-safe collection name (max 63 chars) by hashing IDs."""
+        raw = ":".join(ids)
+        hashed = hashlib.md5(raw.encode()).hexdigest()
+        return f"{prefix}-{hashed}"
+
     def _matches_scope(self, content: str, folder_id: str = None) -> bool:
-        """Check if a memory matches the current scope (global or folder)."""
+        """Check if a memory matches the current scope.
+        
+        Core facts (IDENTITY/USER/FEEDBACK) are ALWAYS global — visible everywhere.
+        
+        PROJECT is STRICTLY isolated:
+        - [PROJECT] only visible in global (no folder)
+        - [PROJECT:folder:X] only visible in folder X
+        """
         cat = self._get_category(content)
         if not cat:
             return False
+        base_cat = self._get_base_category(content)
+
+        # Core facts cascade: global ones always visible, folder overrides only in matching folder
+        if base_cat in ("[IDENTITY]", "[USER]", "[FEEDBACK]"):
+            if ":folder:" in cat:
+                return f":folder:{folder_id}" in cat if folder_id else False
+            return True  # Global core facts visible everywhere
+
+        # PROJECT is strictly quarantined
         if folder_id:
-            # In folder scope: must have :folder:{folder_id}
             return f":folder:{folder_id}" in cat
         else:
-            # In global scope: must NOT have :folder:
             return ":folder:" not in cat and ":chat:" not in cat
 
     # =========================================================================
@@ -200,7 +221,7 @@ class Filter:
             search_vector = [vector] if not isinstance(vector[0], list) else vector
 
             if folder_id:
-                collection_name = f"folder-memory-{user_id}-{folder_id}"
+                collection_name = self._safe_collection_name("folder", user_id, folder_id)
             else:
                 collection_name = f"user-memory-{user_id}"
 
@@ -230,9 +251,10 @@ class Filter:
             logger.warning(f"[MemoryExtract] Vector search for project context failed: {e}")
             return []
 
-    async def _vector_search_local(self, chat_id: str, query_text: str, request, limit: int = 10) -> list:
+    async def _vector_search_local(self, user_id: str, chat_id: str, query_text: str, request, limit: int = 10) -> list:
         """
-        Semantic search for relevant [LOCAL] memories in this chat's vector collection.
+        Semantic search for relevant [LOCAL] memories in the user's single local collection.
+        Uses metadata filter to scope results to this chat_id.
         Returns list of memory dicts {id, content} or empty list.
         """
         try:
@@ -247,7 +269,7 @@ class Filter:
                 return []
 
             search_vector = [vector] if not isinstance(vector[0], list) else vector
-            collection_name = f"local-memory-{chat_id}"
+            collection_name = self._safe_collection_name("local", user_id)
 
             if not VECTOR_DB_CLIENT.has_collection(collection_name):
                 return []
@@ -256,6 +278,7 @@ class Filter:
                 collection_name=collection_name,
                 vectors=search_vector,
                 limit=limit,
+                filter={"chat_id": chat_id},
             )
 
             if not results or not results.documents:
@@ -275,7 +298,8 @@ class Filter:
             logger.warning(f"[MemoryExtract] Vector search for local context failed: {e}")
             return []
 
-    async def _vector_upsert(self, collection_name: str, memory_id: str, content: str, created_at: int, request):
+    async def _vector_upsert(self, collection_name: str, memory_id: str, content: str,
+                              created_at: int, request, extra_metadata: dict = None):
         """Upsert a single memory to Vector DB using EMBEDDING_FUNCTION."""
         try:
             from open_webui.retrieval.vector.factory import VECTOR_DB_CLIENT
@@ -293,13 +317,17 @@ class Filter:
 
             vec = vector[0] if isinstance(vector, list) and isinstance(vector[0], list) else vector
 
+            metadata = {"created_at": created_at}
+            if extra_metadata:
+                metadata.update(extra_metadata)
+
             VECTOR_DB_CLIENT.upsert(
                 collection_name=collection_name,
                 items=[{
                     "id": memory_id,
                     "text": content,
                     "vector": vec,
-                    "metadata": {"created_at": created_at},
+                    "metadata": metadata,
                 }],
             )
             logger.info(f"[MemoryExtract] Vector DB upsert OK ({collection_name}): {memory_id}")
@@ -309,23 +337,20 @@ class Filter:
 
     def _get_vector_collection_for_content(self, content: str, user_id: str, folder_id: str = None,
                                             chat_id: str = None) -> str:
-        """Determine which vector collection a memory belongs to based on its tag."""
+        """Determine which vector collection a memory belongs to based on its tag.
+        Uses hashed collection names to stay within ChromaDB's 63-char limit.
+        LOCAL uses a single collection per user (filtered by chat_id metadata).
+        """
         if self._is_local_category(content):
-            # Extract chat_id from [LOCAL:chat:XYZ] tag
-            import re
-            match = re.search(r'\[LOCAL:chat:([\w-]+)\]', content)
-            if match:
-                return f"local-memory-{match.group(1)}"
-            elif chat_id:
-                return f"local-memory-{chat_id}"
-            return ""
+            # All LOCAL memories go into one collection per user
+            return self._safe_collection_name("local", user_id)
         elif self._is_project_category(content):
             cat = self._get_category(content)
             if ":folder:" in cat:
                 import re
                 match = re.search(r':folder:([\w-]+)', cat)
                 if match:
-                    return f"folder-memory-{user_id}-{match.group(1)}"
+                    return self._safe_collection_name("folder", user_id, match.group(1))
             return f"user-memory-{user_id}"
         return ""
 
@@ -351,7 +376,8 @@ class Filter:
             if request and (self._is_project_category(content) or self._is_local_category(content)):
                 collection = self._get_vector_collection_for_content(content, user_id, folder_id, chat_id)
                 if collection:
-                    await self._vector_upsert(collection, memory.id, content, memory.created_at, request)
+                    extra_meta = {"chat_id": chat_id} if chat_id and self._is_local_category(content) else None
+                    await self._vector_upsert(collection, memory.id, content, memory.created_at, request, extra_meta)
 
             return memory
         except Exception as e:
@@ -375,7 +401,8 @@ class Filter:
             if request and (self._is_project_category(content) or self._is_local_category(content)):
                 collection = self._get_vector_collection_for_content(content, user_id, folder_id, chat_id)
                 if collection:
-                    await self._vector_upsert(collection, memory_id, content, updated.created_at, request)
+                    extra_meta = {"chat_id": chat_id} if chat_id and self._is_local_category(content) else None
+                    await self._vector_upsert(collection, memory_id, content, updated.created_at, request, extra_meta)
 
             return updated
         except Exception as e:
@@ -480,16 +507,21 @@ class Filter:
 {existing_lines}\n"""
 
         current_date = datetime.datetime.now().strftime("%Y-%m-%d")
+        # Pre-compute example dates for temporal grounding
+        _now = datetime.datetime.now()
+        _tomorrow = (_now + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+        _next_week = (_now + datetime.timedelta(weeks=1)).strftime("%Y-%m-%d")
+        _last_month = (_now.replace(day=1) - datetime.timedelta(days=1)).strftime("%Y-%m")
 
         scope_note = ""
         if folder_id:
             scope_note = f"""
-FOLDER SCOPE: This chat is inside a folder (ID: {folder_id}). ALL facts you extract will be scoped to this folder.
-Tag every fact with the appropriate folder-scoped category:
-- [IDENTITY:folder:{folder_id}] for identity facts within this project/folder context
-- [USER:folder:{folder_id}] for preferences specific to this folder's work
-- [PROJECT:folder:{folder_id}] for project facts
-- [FEEDBACK:folder:{folder_id}] for behavioral rules specific to this folder's work
+FOLDER SCOPE: This chat is inside a folder (ID: {folder_id}).
+IMPORTANT: Only [PROJECT] facts are scoped to this folder. Core identity facts are ALWAYS global.
+- [IDENTITY] for identity facts (ALWAYS global, never folder-scoped)
+- [USER] for preferences (ALWAYS global, never folder-scoped)
+- [FEEDBACK] for behavioral rules (ALWAYS global, never folder-scoped)
+- [PROJECT:folder:{folder_id}] for project facts (ONLY this is folder-scoped)
 """
         else:
             scope_note = """
@@ -506,7 +538,12 @@ CRITICAL RULES:
 4. Only extract information the user directly confirmed or volunteered about themselves.
 
 TEMPORAL GROUNDING (TODAY IS {current_date}):
-If the user mentions relative time ("tomorrow", "next week", "recently"), convert it to an absolute date or month in the extracted fact.
+CRITICAL: If the user mentions relative time, you MUST convert it to an absolute date in the fact.
+Examples:
+- User says "I have a meeting tomorrow" → fact: "Meeting on {_tomorrow}"
+- User says "through a week I have a meeting" → fact: "Meeting on {_next_week}"
+- User says "last month I started a new job" → fact: "Started a new job in {_last_month}"
+NEVER store relative time like "tomorrow", "next week", "recently" — always convert to absolute dates.
 {scope_note}
 Use the following strict taxonomy categories:
 - [IDENTITY]: Foundational facts about the user's life (Name, Profession, Location, Family, Spoken Languages). THESE CAN CHANGE — use UPDATE if corrected.
@@ -582,7 +619,7 @@ GOOD examples (specific and useful):
 - "Deadlock fix: extraction LLM calls go directly to MWS API, not through OpenWebUI"
 
 TEMPORAL GROUNDING (TODAY IS {current_date}):
-Convert relative dates to absolute dates.
+CRITICAL: Convert ALL relative dates to absolute dates. Never store "tomorrow", "next week" etc.
 
 All extracted facts will be tagged as [LOCAL:chat:{chat_id}].
 
@@ -736,8 +773,30 @@ Output ONLY a valid JSON array. Each object MUST include a "reason" key. If noth
             return body
 
         # Determine scope
-        folder_id = __metadata__.get("folder_id") if __metadata__ else None
         chat_id = __chat_id__ or (__metadata__.get("chat_id") if __metadata__ else None)
+
+        # Resolve folder_id from DB (OpenWebUI middleware does NOT propagate it to metadata)
+        folder_id = None
+        if chat_id and user_id:
+            try:
+                from open_webui.models.chats import Chats
+                folder_id = Chats.get_chat_folder_id(chat_id, user_id)
+                logger.info(f"[MemoryExtract] DB folder_id lookup: chat={chat_id[:12]}... → folder_id={folder_id}")
+            except AttributeError:
+                try:
+                    from open_webui.models.chats import Chats
+                    chat_obj = Chats.get_chat_by_id_and_user_id(chat_id, user_id)
+                    if chat_obj:
+                        folder_id = getattr(chat_obj, 'folder_id', None)
+                        logger.info(f"[MemoryExtract] Fallback chat lookup: folder_id={folder_id}")
+                except Exception as e2:
+                    logger.warning(f"[MemoryExtract] Fallback chat lookup failed: {e2}")
+            except Exception as e:
+                logger.warning(f"[MemoryExtract] Could not resolve folder_id from DB: {type(e).__name__}: {e}")
+        if not folder_id:
+            folder_id = __metadata__.get("folder_id") if __metadata__ else None
+            if folder_id:
+                logger.info(f"[MemoryExtract] Using metadata folder_id={folder_id}")
 
         folder_label = f"folder={folder_id[:12]}" if folder_id else "global"
         chat_label = f"chat={chat_id[:12]}" if chat_id else "unknown"
@@ -755,10 +814,11 @@ Output ONLY a valid JSON array. Each object MUST include a "reason" key. If noth
         ])
 
         # For local: BOTH user + AI messages (for confirmation detection)
+        # EXCLUDE system messages — they contain injected memory context
         local_chat_history = "\n".join([
             f"{m['role'].upper()}: {m['content']}"
             for m in context_msgs
-            if isinstance(m.get('content'), str)
+            if m.get('role') in ('user', 'assistant') and isinstance(m.get('content'), str)
         ])
 
         if not global_chat_history:
@@ -809,7 +869,7 @@ Output ONLY a valid JSON array. Each object MUST include a "reason" key. If noth
             relevant_local = []
             if __request__:
                 relevant_local = await self._vector_search_local(
-                    chat_id, local_chat_history[:2000],
+                    user_id, chat_id, local_chat_history[:2000],
                     __request__,
                     limit=self.valves.max_local_context
                 )
@@ -873,6 +933,12 @@ Output ONLY a valid JSON array. Each object MUST include a "reason" key. If noth
             if not fact:
                 continue
 
+            # Strip any tag prefix LLM may have included (prevents double-tagging)
+            import re
+            fact = re.sub(r'^\[(?:IDENTITY|USER|PROJECT|FEEDBACK|LOCAL)(?:[^\]]+)?\]\s*', '', fact.strip())
+            if not fact:
+                continue
+
             # Build tagged content
             if is_local:
                 content = f"[LOCAL:chat:{chat_id}] {fact}"
@@ -880,7 +946,9 @@ Output ONLY a valid JSON array. Each object MUST include a "reason" key. If noth
                 category_raw = item.get("category", "[PROJECT]")
                 # Strip brackets and scope for clean category name
                 cat_name = category_raw.replace("[", "").replace("]", "").split(":")[0]
-                content = self._tag_content(cat_name, fact, folder_id)
+                # Only PROJECT gets folder-scoped; core facts always global
+                scope_id = folder_id if cat_name == "PROJECT" else None
+                content = self._tag_content(cat_name, fact, scope_id)
 
             if action == "UPDATE":
                 if target_id and target_id in valid_ids:
