@@ -120,6 +120,14 @@ class Filter:
                         autorouting_mode = mode_match.group(1)
                         # Очищаем сообщение, чтобы языковая модель не увидела этот технический тег
                         msg["content"] = content.replace(mode_match.group(0), "").strip()
+                elif isinstance(content, list):
+                    for part in content:
+                        if part.get("type") == "text":
+                            text_content = part.get("text", "")
+                            mode_match = re.search(r"\[MTS_ROUTING_MODE=(off|light|pro)\]", text_content)
+                            if mode_match:
+                                autorouting_mode = mode_match.group(1)
+                                part["text"] = text_content.replace(mode_match.group(0), "").strip()
                 break
 
         # Если авторутинг выключен, используется только выбранная пользователем модель

@@ -350,10 +350,30 @@
               const bodyObj = JSON.parse(options.body);
               if (bodyObj.messages && Array.isArray(bodyObj.messages)) {
                   const lastMsg = bodyObj.messages[bodyObj.messages.length - 1];
-                  if (lastMsg && lastMsg.role === 'user' && typeof lastMsg.content === 'string') {
+                  if (lastMsg && lastMsg.role === 'user') {
                       const mode = localStorage.getItem(LS_MODE_KEY) || 'off';
-                      // Незаметно приклеиваем тег к сообщению
-                      lastMsg.content += `\n\n[MTS_ROUTING_MODE=${mode}]`;
+                      const tag = `\n\n[MTS_ROUTING_MODE=${mode}]`;
+                      
+                      // Если content это строка (обычный текст)
+                      if (typeof lastMsg.content === 'string') {
+                          lastMsg.content += tag;
+                      } 
+                      // Если content это кэш с мультимодальностью (массив)
+                      else if (Array.isArray(lastMsg.content)) {
+                          let textFound = false;
+                          for (let i = 0; i < lastMsg.content.length; i++) {
+                              if (lastMsg.content[i].type === 'text') {
+                                  lastMsg.content[i].text += tag;
+                                  textFound = true;
+                                  break;
+                              }
+                          }
+                          // Если в массиве не было текстового элемента, добавляем
+                          if (!textFound) {
+                              lastMsg.content.push({ type: 'text', text: tag });
+                          }
+                      }
+                      
                       options.body = JSON.stringify(bodyObj);
                       args[1] = options;
                   }
