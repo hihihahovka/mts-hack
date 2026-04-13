@@ -1,195 +1,310 @@
 /**
- * MTS AI Workspace — Autorouting Selector Widget
- * Injects a settings gear next to "Add Model" button which expands into autorouting toggles.
+ * MTS AI Workspace — Chat Settings & Autorouting Panel
+ * Injects a settings gear next to the Model Selector in the chat.
  */
 (function () {
   'use strict';
 
-  function injectWidget() {
-    // Если уже добавлено, пропускаем
-    if (document.getElementById('mts-autorouting-widget')) return;
+  const LS_MODE_KEY = 'mts-autorouting-mode';
 
-    // Находим кнопку "Add Model" (или "Добавить модель"), чтобы прикрепиться к её контейнеру
+  function applyMode(mode) {
+      localStorage.setItem(LS_MODE_KEY, mode);
+      updateCheckmarks(mode);
+  }
+  
+  function updateCheckmarks(activeMode) {
+      const btns = document.querySelectorAll('.mts-ar-option');
+      btns.forEach(btn => {
+          const check = btn.querySelector('.check-icon');
+          if(check) {
+              check.style.opacity = (btn.dataset.mode === activeMode) ? '1' : '0';
+          }
+      });
+  }
+
+  function injectWidget() {
+    if (document.getElementById('mts-chat-settings-widget')) return;
+
+    // Находим кнопку "Add Model" (или "Добавить модель"), чтобы прикрепиться к её контейнеру в шапке чата
     const addModelBtn = document.querySelector('button[aria-label="Add Model"]') || 
                         document.querySelector('button[aria-label="Добавить модель"]');
-    if (!addModelBtn) return;
-
-    // Нам нужен её родительский контейнер с классом flex, чтобы кнопка ровно встала в ряд
-    let containerElement = addModelBtn.parentElement;
-    if (containerElement && containerElement.parentElement && containerElement.parentElement.classList.contains('flex')) {
-        containerElement = containerElement.parentElement;
+    
+    // В Open WebUI кнопка выбора модели и добавления новой находятся в одном flex-контейнере
+    let containerElement = null;
+    if (addModelBtn) {
+        containerElement = addModelBtn.parentElement;
+        if (containerElement && containerElement.parentElement && containerElement.parentElement.classList.contains('flex')) {
+            containerElement = containerElement.parentElement;
+        }
+    } else {
+        // Fallback: ищем элемент селектора моделей, если кнопки "Добавить модель" нет
+        const modelSelectorArea = document.querySelector('div.flex-1.flex.items-center.min-w-0');
+        if (modelSelectorArea) containerElement = modelSelectorArea;
     }
 
     if (!containerElement) return;
-    
-    // Создаем наш собственный DOM-элемент
-    const widget = document.createElement('div');
-    widget.id = 'mts-autorouting-widget';
-    // Подгоняем стили так же, как у родных кнопок Svelte-шаблона
-    widget.className = 'self-center mx-1 flex items-center group relative -translate-y-[0.5px]';
 
-    // Инжектируем стили и HTML-структуру напрямую
-    widget.innerHTML = `
-      <style>
-        .ar-settings-btn {
-          color: #9ca3af;
-          transition: color 0.2s;
-          padding: 4px;
-          cursor: pointer;
-          background: transparent;
-          border: none;
-          display: flex;
-          align-items: center;
-          justify-content: center;
+    // Снимаем класс overflow-hidden с контейнеров, чтобы наши dropdown меню не обрезались
+    let parentNode = containerElement;
+    for(let i=0; i<3; i++) {
+        if(parentNode) {
+            parentNode.style.overflow = 'visible';
+            parentNode = parentNode.parentElement;
         }
-        .ar-settings-btn:hover {
-          color: #4b5563;
+    }
+
+    // Создаем контейнер нашего виджета
+    const widget = document.createElement('div');
+    widget.id = 'mts-chat-settings-widget';
+    // Добавляем margin-left для отступа от выбора модели
+    widget.className = 'relative flex items-center ml-2 z-50'; 
+
+    widget.innerHTML = `<style>
+        .mts-chat-settings-btn {
+            padding: 6px;
+            border-radius: 0.75rem;
+            color: #9ca3af;
+            background: rgba(0,0,0,0);
+            border: none;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
-        [data-theme='dark'] .ar-settings-btn:hover {
-          color: #e5e7eb;
+        .mts-chat-settings-btn:hover {
+            color: #4b5563;
+            background: rgba(0,0,0,0.05);
         }
-        .ar-expand-area {
-          display: flex;
-          align-items: center;
-          overflow: visible; /* changed from hidden so dropdown isn't clipped */
-          transition: all 0.3s ease;
-          width: 0;
-          opacity: 0;
-          pointer-events: none; /* disables clicking while hidden */
+        [data-theme='dark'] .mts-chat-settings-btn:hover, html.dark .mts-chat-settings-btn:hover {
+            color: #e5e7eb;
+            background: rgba(255,255,255,0.1);
         }
         
-        .ar-expand-area .ar-settings-btn {
-           padding: 2px;
-           margin-left: 2px;
+        .mts-popup-menu {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            margin-top: 8px;
+            width: 260px;
+            background: white;
+            border-radius: 0.75rem;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            border: 1px solid #e5e7eb;
+            display: none;
+            flex-direction: column;
+            z-index: 9999;
+            padding: 6px;
+            font-family: inherit;
+        }
+        [data-theme='dark'] .mts-popup-menu, html.dark .mts-popup-menu {
+            background: #1f2937;
+            border-color: #374151;
+            color: #f3f4f6;
+        }
+        .mts-popup-menu.show {
+            display: flex;
+        }
+        
+        .mts-menu-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            width: 100%;
+            padding: 10px 14px;
+            font-size: 0.875rem;
+            color: inherit;
+            background: transparent;
+            border: none;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            text-align: left;
+            transition: background 0.1s;
+        }
+        .mts-menu-item:hover {
+            background: rgba(0,0,0,0.05);
+        }
+        [data-theme='dark'] .mts-menu-item:hover, html.dark .mts-menu-item:hover {
+            background: #374151;
         }
 
-        /* При наведении на всю группу открывается кнопка авторутинга */
-        .ar-widget-group:hover .ar-expand-area {
-          width: 24px;
-          opacity: 1;
-          pointer-events: auto;
+        .mts-submenu {
+            display: none;
+            position: absolute;
+            left: 100%;
+            top: 0;
+            margin-left: 4px;
+            width: 200px;
+            background: white;
+            border-radius: 0.75rem;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+            border: 1px solid #e5e7eb;
+            flex-direction: column;
+            padding: 6px;
+            z-index: 10000;
+        }
+        [data-theme='dark'] .mts-submenu, html.dark .mts-submenu {
+            background: #1f2937;
+            border-color: #374151;
+        }
+        .mts-submenu.show {
+            display: flex;
         }
 
-        .ar-dropdown {
-          display: none;
-          position: absolute;
-          top: 100%;
-          left: 0;
-          margin-top: 4px;
-          background: white;
-          border: 1px solid #e5e7eb;
-          border-radius: 0.75rem;
-          box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
-          padding: 4px;
-          z-index: 50;
-          min-width: 180px;
-          flex-direction: column;
-          gap: 4px;
-          font-family: inherit;
+        .mts-item-wrapper {
+            position: relative;
         }
-        [data-theme='dark'] .ar-dropdown {
-          background: #1f2937;
-          border-color: #374151;
+        
+        .mts-arrow-icon {
+            width: 16px;
+            height: 16px;
+            opacity: 0.5;
+            transition: transform 0.2s;
         }
-        .ar-dropdown.open {
-          display: flex;
+        .mts-item-wrapper.active .mts-arrow-icon {
+            transform: rotate(-180deg);
         }
-        .ar-dropdown-item {
-          text-align: left;
-          padding: 8px 12px;
-          border-radius: 0.5rem;
-          font-size: 0.875rem;
-          color: #374151;
-          cursor: pointer;
-          border: none;
-          background: transparent;
+        
+        .mts-ar-option {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            justify-content: flex-start;
         }
-        [data-theme='dark'] .ar-dropdown-item {
-          color: #e5e7eb;
+        .check-icon {
+            opacity: 0;
+            width: 14px;
+            height: 14px;
+            margin-left: auto;
+            color: #3b82f6;
         }
-        .ar-dropdown-item:hover {
-          background: #f3f4f6;
+        .menu-label-inner {
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
-        [data-theme='dark'] .ar-dropdown-item:hover {
-          background: #374151;
-        }
-      </style>
+    </style>`;
 
-      <div class="ar-widget-group flex items-center" style="display:flex; align-items:center;">
-          <!-- Иконка шестеренки (настройки) -->
-          <button class="ar-settings-btn" aria-label="Настройки">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16" height="16">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" />
-              <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+    // Кнопка-шестеренка (Settings button)
+    const gearBtn = document.createElement('button');
+    gearBtn.className = 'mts-chat-settings-btn';
+    gearBtn.ariaLabel = "Настройки чата";
+    gearBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="20" height="20">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" />
+      <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+    </svg>`;
+    widget.appendChild(gearBtn);
+
+    // Главное выпадающее меню настроек
+    const mainMenu = document.createElement('div');
+    mainMenu.className = 'mts-popup-menu';
+    
+    // Обертка для настройки "Автопереключение" (чтобы к ней привязать подменю)
+    const arWrapper = document.createElement('div');
+    arWrapper.className = 'mts-item-wrapper';
+
+    // Кнопка Автопереключения в главном меню
+    const arBtn = document.createElement('button');
+    arBtn.className = 'mts-menu-item';
+    arBtn.innerHTML = `
+        <span class="menu-label-inner">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z" />
             </svg>
-          </button>
-
-          <!-- Выплывающая кнопка -->
-          <div class="ar-expand-area relative">
-            <button class="ar-settings-btn" id="ar-trigger-btn" aria-label="Авторутинг">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16" height="16">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z" />
-                </svg>	
-            </button>
-            
-            <div id="ar-dropdown-menu" class="ar-dropdown">
-                <button class="ar-dropdown-item">Выключить настройки</button>
-                <button class="ar-dropdown-item">Light версия</button>
-                <button class="ar-dropdown-item">Pro версия</button>
-            </div>
-          </div>
-      </div>
+            Автопереключение
+        </span>
+        <svg class="mts-arrow-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+           <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
+        </svg>
     `;
 
-    containerElement.appendChild(widget);
+    // Подменю (варианты автопереключения)
+    const submenu = document.createElement('div');
+    submenu.className = 'mts-submenu';
 
-    // Добавляем логику выпадающего списка
-    const triggerBtn = widget.querySelector('#ar-trigger-btn');
-    const dropdownMenu = widget.querySelector('#ar-dropdown-menu');
-    
-    triggerBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        dropdownMenu.classList.toggle('open');
+    const modes = [
+        { id: 'off', label: 'Выключено', icon: '⛔' },
+        { id: 'light', label: 'Light версия', icon: '⚡' },
+        { id: 'pro', label: 'Pro версия', icon: '🔥' }
+    ];
+
+    modes.forEach(mode => {
+        const btn = document.createElement('button');
+        btn.className = 'mts-menu-item mts-ar-option';
+        btn.dataset.mode = mode.id;
+        btn.innerHTML = `
+            <span class="menu-label-inner">${mode.icon} ${mode.label}</span>
+            <svg class="check-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+               <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
+        `;
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            applyMode(mode.id);
+            // Закрываем меню после выбора
+            submenu.classList.remove('show');
+            mainMenu.classList.remove('show');
+            arWrapper.classList.remove('active');
+        });
+        submenu.appendChild(btn);
     });
 
-    document.addEventListener('click', (e) => {
-        if (!dropdownMenu.contains(e.target) && e.target !== triggerBtn && !triggerBtn.contains(e.target)) {
-            dropdownMenu.classList.remove('open');
+    arWrapper.appendChild(arBtn);
+    arWrapper.appendChild(submenu);
+    mainMenu.appendChild(arWrapper);
+    widget.appendChild(mainMenu);
+    
+    // Добавляем виджет в DOM в контейнер выбора модели
+    containerElement.appendChild(widget);
+
+    // Логика открытия/закрытия главного меню (нажатие на шестеренку)
+    gearBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        
+        // Переключаем главное меню
+        const isShowing = mainMenu.classList.contains('show');
+        mainMenu.classList.toggle('show');
+        
+        // При закрытии сбрасываем состояние подменю
+        if (isShowing) {
+            submenu.classList.remove('show');
+            arWrapper.classList.remove('active');
         }
     });
 
-    // Делаем кнопки нажимаемыми и закрываем менюшку
-    const items = widget.querySelectorAll('.ar-dropdown-item');
-    items.forEach(item => {
-        item.addEventListener('click', (e) => {
-            console.log('Выбрана опция:', e.target.textContent);
-            dropdownMenu.classList.remove('open');
-        });
+    // Логика открытия/закрытия подменю
+    arBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        submenu.classList.toggle('show');
+        arWrapper.classList.toggle('active');
     });
+
+    // Закрытие всех меню при клике в любое другое место
+    document.addEventListener('click', (e) => {
+        if (!widget.contains(e.target)) {
+            mainMenu.classList.remove('show');
+            submenu.classList.remove('show');
+            arWrapper.classList.remove('active');
+        }
+    });
+
+    // Устанавливаем галочку в соответствии с сохраненным State
+    const savedMode = localStorage.getItem(LS_MODE_KEY) || 'off';
+    updateCheckmarks(savedMode);
   }
 
-  // Запускаем MutationObserver, потому что интерфейс (в том числе кнопка Add Model) 
-  // может перерисовываться Svelte "на лету" 
-  const observer = new MutationObserver((mutations, obs) => {
-    // Если виджет уже есть, не делаем дубликатов
-    if (document.getElementById('mts-autorouting-widget')) return;
-    
-    // Проверяем наличие кнопки Add Model
-    const addModelBtn = document.querySelector('button[aria-label="Add Model"]') || 
-                        document.querySelector('button[aria-label="Добавить модель"]');
-    if (addModelBtn) {
-        injectWidget();
-    }
+  // Запускаем `MutationObserver`, который реагирует на перерисовки Svelte и вмонтирует виджет
+  const observer = new MutationObserver(() => {
+    injectWidget();
   });
 
-  // Запускаем слежку за интерфейсом
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => {
       observer.observe(document.body, { childList: true, subtree: true });
     });
   } else {
     observer.observe(document.body, { childList: true, subtree: true });
-    injectWidget(); // Пробуем сразу
+    injectWidget(); // Сразу инжектим, если страница уже загружена
   }
 
 })();
