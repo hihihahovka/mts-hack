@@ -249,24 +249,32 @@
         submenu.appendChild(btn);
     });
 
+    // Не добавляем mainMenu и submenu внутрь widget, а добавляем в body,
+    // чтобы избежать обрезания меню из-за родительских overflow:hidden.
+    document.body.appendChild(mainMenu);
+    document.body.appendChild(submenu);
+
     arWrapper.appendChild(arBtn);
-    arWrapper.appendChild(submenu);
     mainMenu.appendChild(arWrapper);
-    widget.appendChild(mainMenu);
     
-    // Добавляем виджет в DOM в контейнер выбора модели
+    // Добавляем саму кнопку-шестеренку в DOM
     containerElement.appendChild(widget);
 
     // Логика открытия/закрытия главного меню (нажатие на шестеренку)
     gearBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         
-        // Переключаем главное меню
         const isShowing = mainMenu.classList.contains('show');
-        mainMenu.classList.toggle('show');
         
-        // При закрытии сбрасываем состояние подменю
-        if (isShowing) {
+        if (!isShowing) {
+            // Позиционируем меню ровно под кнопкой шестеренки
+            const rect = gearBtn.getBoundingClientRect();
+            mainMenu.style.position = 'fixed';
+            mainMenu.style.top = (rect.bottom + 8) + 'px';
+            mainMenu.style.left = rect.left + 'px';
+            mainMenu.classList.add('show');
+        } else {
+            mainMenu.classList.remove('show');
             submenu.classList.remove('show');
             arWrapper.classList.remove('active');
         }
@@ -275,13 +283,30 @@
     // Логика открытия/закрытия подменю
     arBtn.addEventListener('click', (e) => {
         e.stopPropagation();
-        submenu.classList.toggle('show');
-        arWrapper.classList.toggle('active');
+        const isShowing = submenu.classList.contains('show');
+        
+        if (!isShowing) {
+            // Позиционируем подменю ровно справа от кнопки "Автопереключение"
+            const rect = arBtn.getBoundingClientRect();
+            submenu.style.position = 'fixed';
+            submenu.style.top = rect.top + 'px';
+            // Если слишком близко к правому краю, открываем влево
+            if (rect.right + 210 > window.innerWidth) {
+                submenu.style.left = (rect.left - 204) + 'px';
+            } else {
+                submenu.style.left = (rect.right + 4) + 'px';
+            }
+            submenu.classList.add('show');
+            arWrapper.classList.add('active');
+        } else {
+            submenu.classList.remove('show');
+            arWrapper.classList.remove('active');
+        }
     });
 
     // Закрытие всех меню при клике в любое другое место
     document.addEventListener('click', (e) => {
-        if (!widget.contains(e.target)) {
+        if (!mainMenu.contains(e.target) && !gearBtn.contains(e.target) && !submenu.contains(e.target)) {
             mainMenu.classList.remove('show');
             submenu.classList.remove('show');
             arWrapper.classList.remove('active');
