@@ -221,7 +221,9 @@
 					}
 				} catch (e) {}
 			} else {
-				await setDefaults();
+				if (!selectedToolIds?.length && !selectedFilterIds?.length) {
+					await setDefaults();
+				}
 			}
 
 			const chatInput = document.getElementById('chat-input');
@@ -1267,6 +1269,7 @@
 
 				params = chatContent?.params ?? {};
 				chatFiles = chatContent?.files ?? [];
+				selectedToolIds = chatContent?.tool_ids ?? chatContent?.tools ?? selectedToolIds;
 
 				autoScroll = true;
 				await tick();
@@ -1383,7 +1386,8 @@
 					messages: messages,
 					history: history,
 					params: params,
-					files: chatFiles
+					files: chatFiles,
+					tool_ids: selectedToolIds
 				});
 
 				currentChatPage.set(1);
@@ -1438,7 +1442,8 @@
 					messages: messages,
 					history: history,
 					params: params,
-					files: chatFiles
+					files: chatFiles,
+					tool_ids: selectedToolIds
 				});
 
 				currentChatPage.set(1);
@@ -2581,6 +2586,7 @@
 					params: params,
 					history: history,
 					messages: createMessagesList(history, history.currentId),
+					tool_ids: selectedToolIds,
 					tags: [],
 					timestamp: Date.now()
 				},
@@ -2615,7 +2621,8 @@
 					history: history,
 					messages: createMessagesList(history, history.currentId),
 					params: params,
-					files: chatFiles
+					files: chatFiles,
+					tool_ids: selectedToolIds
 				});
 			}
 		}
@@ -2777,17 +2784,18 @@
 								const title =
 									messages.find((m) => m.role === 'user')?.content ?? $i18n.t('New Chat');
 
-								const savedChat = await createNewChat(
-									localStorage.token,
-									{
-										id: uuidv4(),
-										title: title.length > 50 ? `${title.slice(0, 50)}...` : title,
-										models: selectedModels,
-										params: params,
-										history: history,
-										messages: messages,
-										timestamp: Date.now()
-									},
+									const savedChat = await createNewChat(
+										localStorage.token,
+										{
+											id: uuidv4(),
+											title: title.length > 50 ? `${title.slice(0, 50)}...` : title,
+											models: selectedModels,
+											params: params,
+											history: history,
+											messages: messages,
+											tool_ids: selectedToolIds,
+											timestamp: Date.now()
+										},
 									null
 								);
 
