@@ -11,7 +11,10 @@ COPY themes/custom.css /app/build/static/custom.css
 # Копируем JS-виджет переключателя тем
 COPY themes/theme-selector.js /app/build/static/theme-selector.js
 
-# Инжектим скрипт переключателя тем в <head> HTML
+# Копируем JS-виджет авторутинга
+COPY themes/autorouting-selector.js /app/build/static/autorouting-selector.js
+
+# Инжектим скрипт переключателя тем и авторутинга в <head> HTML
 # 1) Ранний инлайн-скрипт для восстановления темы до рендера (без FOUC)
-# 2) Отложенная загрузка виджета
-RUN sed -i 's|</head>|<script>var t=localStorage.getItem("mts-theme");if(t)document.documentElement.setAttribute("data-theme",t);</script><script defer src="/static/theme-selector.js"></script></head>|' /app/build/index.html
+# 2) Отложенная загрузка виджетов
+RUN sed -i 's|</head>|<script>var t=localStorage.getItem("mts-theme");if(t)document.documentElement.setAttribute("data-theme",t);</script><script defer src="/static/theme-selector.js"></script><script defer src="/static/autorouting-selector.js"></script></head>|' /app/build/index.html
