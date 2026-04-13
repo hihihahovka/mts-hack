@@ -338,4 +338,27 @@
     injectWidget(); // Сразу инжектим, если страница уже загружена
   }
 
+  // Перехватываем запросы к Chat Completions Svelte-фронтенда,
+  // чтобы незаметно прокидывать выбранный режим в metadata для backend-фильтра
+  const originalFetch = window.fetch;
+  window.fetch = async function(...args) {
+      const url = args[0];
+      if (url && typeof url === 'string' && url.includes('/api/chat/completions')) {
+          try {
+              const options = args[1];
+              if (options && options.body) {
+                  const bodyObj = JSON.parse(options.body);
+                  const mode = localStorage.getItem(LS_MODE_KEY) || 'off';
+                  if (!bodyObj.metadata) bodyObj.metadata = {};
+                  bodyObj.metadata.autorouting_mode = mode;
+                  options.body = JSON.stringify(bodyObj);
+                  args[1] = options;
+              }
+          } catch(e) {
+              console.error("Autorouting interceptor error:", e);
+          }
+      }
+      return originalFetch.apply(this, args);
+  };
+
 })();
