@@ -179,6 +179,37 @@ services:
           cpus: '0.5'
           memory: 256M
 
+  # ============================================================
+  # pgAdmin — Database Web UI
+  # ============================================================
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: pgadmin-${ENV_NAME:-local}
+    ports:
+      - "${PGADMIN_PORT:-5050}:80"
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=admin@local.dev
+      - PGADMIN_DEFAULT_PASSWORD=admin
+      - PGADMIN_CONFIG_SERVER_MODE=False
+      - PGADMIN_SERVER_JSON_FILE=/pgadmin4/servers.json
+    volumes:
+      - pgadmin-data:/var/lib/pgadmin
+      - ./config/pgadmin/servers.json:/pgadmin4/servers.json:ro
+      - ./config/pgadmin/pgpass:/pgadmin4/pgpass:ro
+    entrypoint: >
+      /bin/sh -c "
+      cp /pgadmin4/pgpass /tmp/pgpass &&
+      chmod 600 /tmp/pgpass &&
+      sed -i 's|/pgadmin4/pgpass|/tmp/pgpass|' /pgadmin4/servers.json || true &&
+      /entrypoint.sh
+      "
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - mts-net
+    restart: unless-stopped
+
 networks:
   mts-net:
     driver: bridge
