@@ -52,16 +52,22 @@ async def transcribe(
     Accepts audio file, returns transcribed text.
     """
     try:
-        # Read uploaded audio
-        audio_bytes = await file.read()
-
-        if len(audio_bytes) == 0:
-            raise HTTPException(status_code=400, detail="Empty audio file")
-
-        # Write to temp file (faster-whisper needs file path)
+        MAX_FILE_SIZE = 25 * 1024 * 1024  # 25 MB
+        
+        # Stream file to disk in chunks to prevent memory exhaustion (DoS protection)
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-            tmp.write(audio_bytes)
             tmp_path = tmp.name
+            file_size = 0
+            while chunk := await file.read(8192):
+                file_size += len(chunk)
+                if file_size > MAX_FILE_SIZE:
+                    os.unlink(tmp_path)
+                    raise HTTPException(status_code=413, detail="File too large. Maximum size is 25 MB")
+                tmp.write(chunk)
+
+        if file_size == 0:
+            os.unlink(tmp_path)
+            raise HTTPException(status_code=400, detail="Empty audio file")
 
         try:
             # Transcribe with faster-whisper

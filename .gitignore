@@ -28,6 +28,7 @@ share/python-wheels/
 
 # Virtual Environments
 venv/
+.venv*
 .venv/
 ENV/
 env.bak/
@@ -54,3 +55,8 @@ docs/
 Ignore/
 
 /docs/THEORY.md
+
+# Ignore specific research files
+ответ.md
+deep_research.ipynb
+tools/deep_research_tool.py
