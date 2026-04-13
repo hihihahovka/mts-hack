@@ -1,6 +1,18 @@
-# Расширяем готовый образ OpenWebUI нашими кастомизациями
-# Для глубоких изменений в Svelte-компонентах нужно много оперативной памяти (Docker Desktop не тянет)
+# 1. Этап сборки нашего обновленного фронтенда из локального кода Svelte
+FROM node:22-alpine AS frontend-builder
+WORKDIR /app
+COPY open-webui/package.json open-webui/package-lock.json ./
+RUN npm ci || npm install
+COPY open-webui/ ./
+RUN npm run build
+
+
+# 2. Финальный образ (расширяем готовый образ OpenWebUI)
 FROM ghcr.io/open-webui/open-webui:main
+
+# Удаляем стандартный фронтенд из образа и заменяем его на наш собранный
+RUN rm -rf /app/build/*
+COPY --from=frontend-builder /app/build /app/build
 
 # Fix upstream bug: uncomment `db = None` to prevent UnboundLocalError in db.py
 RUN sed -i 's/# db = None/db = None/' /app/backend/open_webui/internal/db.py
@@ -12,6 +24,4 @@ COPY themes/custom.css /app/build/static/custom.css
 COPY themes/theme-selector.js /app/build/static/theme-selector.js
 
 # Инжектим скрипт переключателя тем в <head> HTML
-# 1) Ранний инлайн-скрипт для восстановления темы до рендера (без FOUC)
-# 2) Отложенная загрузка виджета
 RUN sed -i 's|</head>|<script>var t=localStorage.getItem("mts-theme");if(t)document.documentElement.setAttribute("data-theme",t);</script><script defer src="/static/theme-selector.js"></script></head>|' /app/build/index.html
