@@ -129,7 +129,7 @@ class Filter:
             
         # Hardcode image generation routing
         last_message_lower = last_message.lower()
-        if any(keyword in last_message_lower for keyword in ["нарисуй", "сгенерируй", "draw", "create an image", "изобрази"]):
+        if any(keyword in last_message_lower for keyword in ["нарисуй", "сгенерируй", "сгенерировать", "draw", "create an image", "изобрази", "сделай картинку", "генерация", "генерации"]):
             if "metadata" not in body:
                 body["metadata"] = {}
             body["metadata"]["_routed_model"] = "image_gen_pipe.qwen-image"
@@ -191,7 +191,7 @@ Available Models:
 Original Model Selected by User: {original_model}
 
 Rules for Routing:
-1. If the user explicitly asks to generate an image ("нарисуй", "сгенерируй", "draw", "create an image", "изобрази"), you MUST select an Image Generation model (e.g., ID containing 'image', 'lightning', 'qwen-image', 'dall-e').
+1. If the user explicitly asks to generate an image ("нарисуй", "сгенерируй", "сгенерировать", "draw", "create an image", "изобрази"), you MUST select an Image Generation model (e.g., ID containing 'image', 'lightning', 'qwen-image', 'dall-e').
 2. If the user attached an image (has_image={has_image}), you MUST select a Vision Language Model (VLM) (e.g., ID containing 'vl', 'vision', 'cotype-pro-vl', 'qwen2.5-vl').
 3. If the user attached audio (has_audio={has_audio}), you MUST select an Audio model (e.g., 'whisper', 'asr').
 4. For ANY other standard text, reasoning, or coding questions, you MUST simply return the Original Model ID ({original_model}) chosen by the user. Do not try to be smart and pick another text model.
@@ -241,6 +241,9 @@ Provide your answer as a single string of the chosen model ID. NO EXCEPTIONS. JU
                         break
 
                 if routed_id:
+                    if routed_id in ["qwen-image", "qwen-image-lightning"]:
+                        routed_id = f"image_gen_pipe.{routed_id}"
+                        
                     if "metadata" not in body:
                         body["metadata"] = {}
                     body["metadata"]["_routed_model"] = routed_id
