@@ -339,49 +339,32 @@
   }
 
   // Перехватываем запросы к Chat Completions,
-  // чтобы надежно прокинуть выбранный режим (off/light/pro) через само сообщение,
-  // так как бэкенд (Pydantic) может обрезать кастомные поля вроде metadata.
-  const originalFetch = window.fetch;
-  window.fetch = async function(...args) {
-      try {
-          const urlStr = typeof args[0] === 'string' ? args[0] : (args[0] && args[0].url ? args[0].url : "");
-          let options = args[1];
-          if (options && options.body && typeof options.body === 'string') {
-              const bodyObj = JSON.parse(options.body);
-              if (bodyObj.messages && Array.isArray(bodyObj.messages)) {
-                  const lastMsg = bodyObj.messages[bodyObj.messages.length - 1];
-                  if (lastMsg && lastMsg.role === 'user') {
-                      const mode = localStorage.getItem(LS_MODE_KEY) || 'off';
-                      const tag = `\n\n[MTS_ROUTING_MODE=${mode}]`;
-                      
-                      // Если content это строка (обычный текст)
-                      if (typeof lastMsg.content === 'string') {
-                          lastMsg.content += tag;
-                      } 
-                      // Если content это кэш с мультимодальностью (массив)
-                      else if (Array.isArray(lastMsg.content)) {
-                          let textFound = false;
-                          for (let i = 0; i < lastMsg.content.length; i++) {
-                              if (lastMsg.content[i].type === 'text') {
-                                  lastMsg.content[i].text += tag;
-                                  textFound = true;
-                                  break;
-                              }
-                          }
-                          // Если в массиве не было текстового элемента, добавляем
-                          if (!textFound) {
-                              lastMsg.content.push({ type: 'text', text: tag });
-                          }
-                      }
-                      
-                      options.body = JSON.stringify(bodyObj);
-                      args[1] = options;
-                  }
+  // чтобы добавить режим авторутинга через BODY (payload injection).
+  // defer-скрипт запускается до первого fetch-запроса пользователя, поэтому я делаю перехват на самом раннем этапе.
+  (function overrideFetch() {
+      const origFetch = window.fetch;
+      window.fetch = function(...args) {
+          try {
+              let resource = args[0];
+              let init = args[1] || {};
+
+              // Получаем URL строкой
+              const urlStr = typeof resource === 'string' ? resource
+                  : (resource instanceof Request ? resource.url : '');
+
+              // Применяем только к чатовым запросам
+              if (urlStr && (urlStr.includes('/api/chat') || urlStr.includes('/chat/completions'))) {
+                  const mode = localStorage.getItem(LS_MODE_KEY) || 'off';
+
+                  // Добавляем заголовок к опциям
+                  const headers = new Headers(init.headers || {});
+                  headers.set('X-MTS-Routing-Mode', mode);
+                  init = { ...init, headers };
+                  args[1] = init;
               }
-          }
-      } catch(e) { } // Игнорируем ошибки сериализации, если это не наш запрос
-      
-      return originalFetch.apply(this, args);
-  };
+          } catch(e) { /* безопасно игнорируем */ }
+          return origFetch.apply(this, args);
+      };
+  })();
 
 })();

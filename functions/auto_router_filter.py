@@ -108,27 +108,14 @@ class Filter:
             return body
 
         original_model = body.get("model", "")
-        
-        # Надежно извлекаем режим из самого сообщения (так как metadata может обрезаться бэкендом)
-        autorouting_mode = "off"
-        for msg in reversed(messages):
-            if msg.get("role") == "user":
-                content = msg.get("content", "")
-                if isinstance(content, str):
-                    mode_match = re.search(r"\[MTS_ROUTING_MODE=(off|light|pro)\]", content)
-                    if mode_match:
-                        autorouting_mode = mode_match.group(1)
-                        # Очищаем сообщение, чтобы языковая модель не увидела этот технический тег
-                        msg["content"] = content.replace(mode_match.group(0), "").strip()
-                elif isinstance(content, list):
-                    for part in content:
-                        if part.get("type") == "text":
-                            text_content = part.get("text", "")
-                            mode_match = re.search(r"\[MTS_ROUTING_MODE=(off|light|pro)\]", text_content)
-                            if mode_match:
-                                autorouting_mode = mode_match.group(1)
-                                part["text"] = text_content.replace(mode_match.group(0), "").strip()
-                break
+
+        # Читаем режим авторутинга из HTTP-заголовка (X-MTS-Routing-Mode)
+        # Этот метод гарантированно доходит до фильтра независимо от Pydantic-валидации
+        autorouting_mode = __request__.headers.get("x-mts-routing-mode", "off").lower().strip()
+        if autorouting_mode not in ("off", "light", "pro"):
+            autorouting_mode = "off"
+
+        log.info(f"[AutoRouter] mode={autorouting_mode}, model={original_model}")
 
         # Если авторутинг выключен, используется только выбранная пользователем модель
         if autorouting_mode == "off":
