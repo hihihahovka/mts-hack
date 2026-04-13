@@ -14,33 +14,33 @@ cp .env.example .env
 # Вписать MWS_API_KEY в .env
 
 # 3. Запустить всё одной командой
-docker compose up -d
+make install
 
-# 4. (Первый запуск) Скачать VLM модель для анализа изображений
-# chmod +x scripts/setup.sh
-# ./scripts/setup.sh
+# 4. Проверить что всё работает
+make test
 
-# 4. Открыть в браузере
+# 5. Открыть в браузере
 open http://localhost:8080
-
-
-**для админа:**
- 24 +- Email: `admin@mts-ai.local`
- 25 +- Пароль: `adminpassword123`
- 26 +
- 27 +Или зарегистрируйтесь через **Sign Up**
-
- P.S. настроил права так, чтобы каждый новый юзер сразу был админом
 ```
+
+**Учётные данные администратора:**
+- Email: `admin@mts-ai.local`
+- Пароль: `adminpassword123`
+
+Или зарегистрируйтесь через **Sign Up** (каждый новый пользователь получает права админа).
+
+> 💡 `make test` запускает автоматические smoke-тесты: проверяет связность сервисов, авторизацию, модели, tools, functions, TTS и поиск.
 
 ## 📦 Сервисы
 
 | Сервис | Порт | Назначение |
 |---|---|---|
-| **OpenWebUI** | 8080 | Основной интерфейс |
-| **SearXNG** | 8888 | Web Search |
-| **Ollama** | 11434 | VLM (Moondream 2B) |
-| **Whisper API** | 9000 | Голосовой ввод (ASR) |
+| **OpenWebUI** | 8080 | Основной чат-интерфейс |
+| **PostgreSQL** | 5432 | База данных |
+| **SearXNG** | 8888 | Web Search (self-hosted) |
+| **Whisper API** | 9000 | Голосовой ввод (ASR, faster-whisper) |
+| **Portainer** | 9010 | Мониторинг контейнеров |
+| **Dozzle** | 9990 | Просмотр логов в реальном времени |
 
 ## 🧠 Модели MWS GPT
 
@@ -50,20 +50,20 @@ open http://localhost:8080
 | `kodify-2.0` | Код-генерация, дебаг |
 | `cotype-preview-32k` | Длинные документы (32k контекст) |
 | `bge-m3` | Embeddings для RAG |
+| `qwen-image` / `qwen-image-lightning` | Генерация изображений |
 
 ## ⚡ Ключевые фичи
 
 - ✅ **Автоматическая маршрутизация** — система сама выбирает модель под задачу
 - ✅ **Голосовой ввод** — faster-whisper (локальный, русский язык)
-- ✅ **Генерация изображений** — Pollinations API (~5-15 сек)
-- ✅ **Анализ изображений** — Moondream 2B VLM (CPU)
+- ✅ **Генерация изображений** — MWS GPT API (qwen-image)
 - ✅ **Web Search** — SearXNG (self-hosted)
 - ✅ **Web Scraping** — Jina Reader API
 - ✅ **RAG** — загрузка PDF/DOCX с поиском через bge-m3
 - ✅ **Долгосрочная память** — экстракция фактов о пользователе
-- ✅ **TTS** — edge-tts (русский язык)
+- ✅ **TTS** — озвучивание ответов (русский язык)
 - ✅ **Deep Research** — multi-step research agent
-- ✅ **Система тем** — 7 цветовых палитр
+- ✅ **Система тем** — 7 цветовых палитр с переключателем
 
 ## 🏗️ Архитектура
 
@@ -81,52 +81,66 @@ open http://localhost:8080
 └─────────┼──────────┼────────────┼────────────────┘
           │          │            │
    ┌──────▼───┐ ┌───▼────┐ ┌───▼────────┐
-   │ MWS GPT  │ │ Ollama │ │  Tools     │
-   │ API      │ │Moondream│ │            │
-   │·alpha    │ │  (VLM)  │ │·ImageGen   │
+   │ MWS GPT  │ │Whisper │ │  Tools     │
+   │ API      │ │  API   │ │            │
+   │·alpha    │ │ (ASR)  │ │·ImagePipe  │
    │·kodify   │ └────────┘ │·WebScraper │
    │·cotype   │            │·Research   │
-   │·bge-m3   │            └────────────┘
-   └──────────┘
-        ▲               ┌─────────────┐
-        │               │  SearXNG    │
-   ┌────┴─────┐         │ (Web Search)│
-   │ Whisper  │         └─────────────┘
-   │ API(ASR) │
-   └──────────┘
+   │·bge-m3   │ ┌────────┐ └────────────┘
+   │·qwen-img │ │SearXNG │
+   └──────────┘ │(Search)│
+                └────────┘
+```
+
+## 🛠️ Управление проектом (Makefile)
+
+```bash
+make install  # Первоначальная настройка + запуск
+make start    # Запустить все сервисы
+make stop     # Остановить сервисы
+make restart  # Перезапустить
+make status   # Проверить состояние контейнеров
+make logs     # Логи в реальном времени
+make seed     # Обновить tools/functions (пересобрать seed)
+make update   # Обновить seed + open-webui
+make wipe     # ⚠️ Удалить всё + базы данных
 ```
 
 ## 📁 Структура проекта
 
 ```
 mts-ai-workspace/
-├── docker-compose.yml          # Однострочный запуск
-├── .env.example                # Переменные окружения
+├── docker-compose.yml          # Оркестрация сервисов
+├── Dockerfile.openwebui        # Кастомный образ OpenWebUI (темы, патчи)
+├── .env.example                # Шаблон переменных окружения
+├── Makefile                    # Управление проектом
 ├── README.md
 ├── config/searxng/             # Конфигурация SearXNG
 ├── services/whisper/           # faster-whisper ASR сервис
+│   ├── Dockerfile
+│   └── main.py
 ├── tools/                      # OpenWebUI Tools
-│   ├── image_gen_tool.py       # Pollinations API
 │   ├── web_scraper_tool.py     # Jina Reader
-│   └── deep_research_tool.py   # Multi-step research
-├── functions/                  # OpenWebUI Filter Functions
+│   └── deep_research_tool.py   # Multi-step research agent
+├── functions/                  # OpenWebUI Functions (Filters/Pipes)
 │   ├── auto_router_filter.py   # Автовыбор модели
-│   ├── memory_extract_filter.py# Экстракция фактов
-│   └── context_inject_filter.py# Инжекция памяти
-├── themes/custom.css           # 7 цветовых тем
-├── scripts/
-│   ├── setup.sh                # Загрузка VLM модели
-│   └── seed_tools.py           # Автозагрузка tools/functions
-└── docs/
-    ├── architecture.md         # Архитектурная схема
-    └── features.md             # Шаблон фичей
+│   ├── memory_extract_filter.py# Экстракция фактов (Outlet)
+│   ├── context_inject_filter.py# Инжекция памяти (Inlet)
+│   └── image_gen_pipe.py       # Генерация картинок (Pipe)
+├── themes/
+│   ├── custom.css              # 7 цветовых тем
+│   └── theme-selector.js       # Виджет переключения тем
+└── scripts/
+    ├── setup.sh                # Проверка состояния
+    ├── seed_tools.py           # Автозагрузка tools/functions
+    └── Dockerfile.seed         # Образ для seed
 ```
 
 ## 🔧 Требования
 
 - Docker + Docker Compose
 - ~8 GB свободной RAM
-- Интернет-соединение (для MWS GPT API и Pollinations)
+- Интернет-соединение (для MWS GPT API)
 
 ## 📄 Лицензия
 

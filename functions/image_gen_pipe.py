@@ -70,6 +70,18 @@ class Pipe:
         Handle incoming chat request by generating an image.
         Extracts the last user message as the prompt and calls the image API.
         """
+        # Skip background tasks — OpenWebUI sends title_generation, tags_generation,
+        # emoji_generation, etc. to the same model. Without this check, each task
+        # would trigger a separate image generation API call.
+        BACKGROUND_TASKS = {
+            "title_generation", "tags_generation", "emoji_generation",
+            "follow_up_generation", "query_generation",
+            "autocomplete_generation", "image_prompt_generation",
+            "moa_response_generation", "function_calling",
+        }
+        task = body.get("metadata", {}).get("task", "")
+        if task in BACKGROUND_TASKS:
+            return ""
         # Determine which model was selected
         model_id = body.get("model", "")
         # OpenWebUI prefixes pipe model IDs with the function id
