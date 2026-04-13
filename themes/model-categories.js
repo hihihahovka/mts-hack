@@ -1,68 +1,59 @@
 /**
  * MTS AI Workspace — Model Category Tabs
  * Injects category tabs into the model selector dropdown.
- * Categories: Текст, Логика, Код, Зрение, Картинки, Аудио
- * Within each category: heavy models first, light models last.
+ * Replaces the default "Все" / "Внешнее" tabs with categories.
  */
 (function () {
   'use strict';
 
-  // ─── Категории и модели (от тяжёлых к лёгким) ───────────────────────────────
+  // ─── Категории: keywords в нижнем регистре, order — тяжёлые первыми ──────────
   const CATEGORIES = [
     {
       id: 'text',
       label: '📝 Текст',
-      keywords: ['glm-4', 'gpt-oss', 'llama', 'qwen3-32b', 'qwen2.5-72b', 'mistral'],
-      // Порядок: тяжёлые сначала
-      order: ['glm-4.6-357b', 'gpt-oss-20b', 'llama-3.1-8b-instruct'],
+      keywords: ['glm-4', 'gpt-oss', 'llama', 'mistral', 'qwen2.5-72b', 'qwen3-32b'],
     },
     {
       id: 'reasoning',
       label: '🧠 Логика',
       keywords: ['qwq', 'deepseek-r1', 'deepseek-r', 'o1', 'o3'],
-      order: ['qwq-32b', 'QwQ-32B', 'deepseek-r1-distill-qwen-32b'],
     },
     {
       id: 'code',
       label: '💻 Код',
-      keywords: ['coder', 'code', 'codestral'],
-      order: ['qwen3-coder-480b-a35b'],
+      keywords: ['coder', 'codestral'],
     },
     {
       id: 'vision',
       label: '👁 Зрение',
-      keywords: ['vl', 'vision', 'cotype'],
-      order: ['qwen2.5-vl-72b', 'cotype-pro-vl-32b', 'qwen2.5-vl'],
+      keywords: ['-vl', 'vision', 'cotype'],
     },
     {
       id: 'image',
       label: '🖼 Картинки',
-      keywords: ['image', 'dall-e', 'stable-diff', 'flux'],
-      order: ['qwen-image', 'qwen-image-lightning'],
+      keywords: ['image', 'dall-e', 'flux', 'lightning'],
     },
     {
       id: 'audio',
       label: '🎤 Аудио',
-      keywords: ['whisper', 'asr', 'speech', 'stt'],
-      order: [],
+      keywords: ['whisper', 'asr', 'speech'],
     },
   ];
 
   // ─── Стили ───────────────────────────────────────────────────────────────────
   const STYLE = `
+    /* Скрываем оригинальные вкладки "Все" / "Внешнее" */
+    .mts-hide-original-tabs { display: none !important; }
+
     #mts-cat-tabs {
       display: flex;
       flex-wrap: wrap;
       gap: 4px;
       padding: 6px 8px 4px;
-      border-bottom: 1px solid #e5e7eb;
-      background: transparent;
-    }
-    html.dark #mts-cat-tabs {
-      border-color: #374151;
+      flex-shrink: 0;
     }
     .mts-cat-tab {
-      padding: 3px 8px;
+      padding: 3px 10px;
       border-radius: 999px;
       font-size: 0.72rem;
       font-weight: 500;
@@ -73,6 +64,7 @@
       white-space: nowrap;
       transition: all 0.15s;
       font-family: inherit;
+      line-height: 1.4;
     }
     .mts-cat-tab:hover {
       background: #f3f4f6;
@@ -92,178 +84,146 @@
       color: #a5b4fc;
       border-color: #4338ca;
     }
-    .mts-cat-hidden {
-      display: none !important;
-    }
   `;
 
-  // ─── Определяем категорию модели по ID/name ──────────────────────────────────
-  function getCategoryForModel(modelId) {
-    const id = (modelId || '').toLowerCase();
-    for (const cat of CATEGORIES) {
-      if (cat.keywords.some(kw => id.includes(kw.toLowerCase()))) {
-        return cat.id;
-      }
+  let activeCategory = 'all';
+  let isFiltering = false; // Защита от рекурсии
+
+  // ─── Ищем список моделей ─────────────────────────────────────────────────────
+  // Open WebUI рендерит каждую модель как кнопку внутри прокручиваемого div.
+  // Ищем контейнер по паттерну: div с overflow-y-auto внутри дропдауна.
+  function getModelContainer() {
+    // Ищем прокручиваемый контейнер списка моделей
+    const scrollers = document.querySelectorAll('[data-state="open"] [class*="overflow-y-auto"], [class*="overflow-y-auto"]');
+    for (const el of scrollers) {
+      // Если внутри есть кнопки с именами моделей — это наш контейнер
+      const buttons = el.querySelectorAll('button');
+      if (buttons.length >= 2) return el;
     }
-    return 'text'; // fallback — в «Текст»
+    return null;
+  }
+
+  function getModelItems(container) {
+    if (!container) return [];
+    // Берём прямых потомков type-button или div с кнопкой
+    return [...container.querySelectorAll(':scope > *')].filter(el => {
+      // Каждая модель — это строка (div/li) с кнопкой или сама кнопка
+      return el.textContent.trim().length > 0 && !el.id.includes('mts');
+    });
+  }
+
+  // ─── Фильтрация ─────────────────────────────────────────────────────────────
+  function filterModels(catId) {
+    if (isFiltering) return;
+    isFiltering = true;
+
+    try {
+      const container = getModelContainer();
+      if (!container) return;
+
+      const items = getModelItems(container);
+      if (!items.length) return;
+
+      if (catId === 'all') {
+        items.forEach(el => (el.style.display = ''));
+        isFiltering = false;
+        return;
+      }
+
+      const cat = CATEGORIES.find(c => c.id === catId);
+      if (!cat) { isFiltering = false; return; }
+
+      const matched = [];
+      const unmatched = [];
+
+      items.forEach(el => {
+        const text = el.textContent.trim().toLowerCase();
+        const matches = cat.keywords.some(kw => text.includes(kw.toLowerCase()));
+        if (matches) {
+          el.style.display = '';
+          matched.push(el);
+        } else {
+          el.style.display = 'none';
+          unmatched.push(el);
+        }
+      });
+
+      // Перемещаем matched в начало (тяжёлые — по алфавиту/порядку появления, не меняем)
+      matched.forEach(el => container.prepend(el));
+
+    } finally {
+      isFiltering = false;
+    }
   }
 
   // ─── Инжектируем вкладки ─────────────────────────────────────────────────────
-  let activeCategory = 'all';
-  let injected = false;
-
   function injectCategoryTabs() {
-    // Ищем таб-бар с кнопками "Все" / "Внешнее"
-    const existingTabs = [...document.querySelectorAll('button')].filter(b => {
+    // Уже инжектировано?
+    if (document.getElementById('mts-cat-tabs')) return;
+
+    // Находим таб-бар с "Все" / "Внешнее"
+    const allButtons = [...document.querySelectorAll('button')];
+    const tabAllBtn = allButtons.find(b => {
       const t = b.textContent.trim();
-      return (t === 'Все' || t === 'All') && b.parentElement;
+      return (t === 'Все' || t === 'All') && b.offsetParent !== null;
+    });
+    if (!tabAllBtn) return;
+
+    const tabBar = tabAllBtn.parentElement;
+    if (!tabBar) return;
+
+    // Скрываем оригинальные вкладки
+    [...tabBar.children].forEach(child => {
+      child.classList.add('mts-hide-original-tabs');
     });
 
-    if (!existingTabs.length) return;
+    // Создаём наш блок
+    const catTabs = document.createElement('div');
+    catTabs.id = 'mts-cat-tabs';
 
-    const tabBar = existingTabs[0].parentElement;
+    // "Все" — первая
+    catTabs.appendChild(makeTab('all', '✦ Все', true));
+    CATEGORIES.forEach(cat => catTabs.appendChild(makeTab(cat.id, cat.label, false)));
 
-    // Не добавляем если уже есть
-    if (tabBar.querySelector('#mts-cat-tabs') || document.getElementById('mts-cat-tabs')) return;
-    injected = true;
-
-    // Стили
-    if (!document.getElementById('mts-cat-style')) {
-      const styleEl = document.createElement('style');
-      styleEl.id = 'mts-cat-style';
-      styleEl.textContent = STYLE;
-      document.head.appendChild(styleEl);
-    }
-
-    // Контейнер вкладок категорий
-    const catTabsEl = document.createElement('div');
-    catTabsEl.id = 'mts-cat-tabs';
-
-    // Кнопка "Все" в наших вкладках
-    const allTab = makeTab('all', '✦ Все');
-    allTab.classList.add('active');
-    catTabsEl.appendChild(allTab);
-
-    // Кнопки категорий
-    CATEGORIES.forEach(cat => {
-      catTabsEl.appendChild(makeTab(cat.id, cat.label));
-    });
-
-    // Вставляем ПОСЛЕ существующего таб-бара
-    tabBar.insertAdjacentElement('afterend', catTabsEl);
+    // Вставляем в тот же tabBar (вместо скрытых)
+    tabBar.appendChild(catTabs);
   }
 
-  function makeTab(id, label) {
+  function makeTab(id, label, active) {
     const btn = document.createElement('button');
-    btn.className = 'mts-cat-tab';
+    btn.className = 'mts-cat-tab' + (active ? ' active' : '');
     btn.dataset.catId = id;
     btn.textContent = label;
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
-      selectCategory(id);
+      e.preventDefault();
+      activeCategory = id;
+      document.querySelectorAll('.mts-cat-tab').forEach(b =>
+        b.classList.toggle('active', b.dataset.catId === id)
+      );
+      filterModels(id);
     });
     return btn;
   }
 
-  function selectCategory(catId) {
-    activeCategory = catId;
-
-    // Обновляем active-класс
-    document.querySelectorAll('.mts-cat-tab').forEach(b => {
-      b.classList.toggle('active', b.dataset.catId === catId);
-    });
-
-    filterAndSortModels(catId);
+  // ─── Стили один раз ──────────────────────────────────────────────────────────
+  function injectStyles() {
+    if (document.getElementById('mts-cat-style')) return;
+    const style = document.createElement('style');
+    style.id = 'mts-cat-style';
+    style.textContent = STYLE;
+    document.head.appendChild(style);
   }
 
-  // ─── Фильтрация и сортировка ─────────────────────────────────────────────────
-  function filterAndSortModels(catId) {
-    // Ищем контейнер со списком моделей
-    // Open WebUI рендерит их как кнопки с data-value или aria-label, или просто текстом
-    const allItems = getModelListItems();
-    if (!allItems.length) return;
-
-    const parent = allItems[0].parentElement;
-
-    if (catId === 'all') {
-      // Показываем всё, убираем нашу сортировку
-      allItems.forEach(el => el.classList.remove('mts-cat-hidden'));
-      return;
-    }
-
-    const cat = CATEGORIES.find(c => c.id === catId);
-    if (!cat) return;
-
-    // Разбиваем на matching и non-matching
-    const matching = [];
-    const nonMatching = [];
-
-    allItems.forEach(el => {
-      const modelText = (el.textContent || '').toLowerCase();
-      const matches = cat.keywords.some(kw => modelText.includes(kw.toLowerCase()));
-      if (matches) {
-        matching.push(el);
-        el.classList.remove('mts-cat-hidden');
-      } else {
-        nonMatching.push(el);
-        el.classList.add('mts-cat-hidden');
-      }
-    });
-
-    // Сортируем matching по order (тяжёлые сначала)
-    if (cat.order.length > 0) {
-      matching.sort((a, b) => {
-        const aText = a.textContent.trim().toLowerCase();
-        const bText = b.textContent.trim().toLowerCase();
-        const aIdx = cat.order.findIndex(m => aText.includes(m.toLowerCase()));
-        const bIdx = cat.order.findIndex(m => bText.includes(m.toLowerCase()));
-        const ai = aIdx === -1 ? 999 : aIdx;
-        const bi = bIdx === -1 ? 999 : bIdx;
-        return ai - bi;
-      });
-      // Переставляем в DOM
-      matching.forEach(el => parent.appendChild(el));
-    }
-  }
-
-  function getModelListItems() {
-    // Open WebUI рендерит каждую модель как button или div с ролью option
-    // в одном прокручиваемом контейнере внутри model selector
-    const candidates = [];
-    // Ищем кнопки в model dropdown, у которых нет наших классов
-    document.querySelectorAll('[role="option"], [role="listitem"]').forEach(el => {
-      if (!el.classList.contains('mts-cat-tab')) candidates.push(el);
-    });
-    if (candidates.length > 0) return candidates;
-
-    // Fallback: ищем элементы списка внутри popover/dropdown, которые не являются нашими
-    const dropdowns = document.querySelectorAll('[data-radix-popper-content-wrapper], .model-selector, [role="listbox"]');
-    dropdowns.forEach(dd => {
-      dd.querySelectorAll('button').forEach(btn => {
-        if (!btn.classList.contains('mts-cat-tab') && btn.textContent.trim().length > 0) {
-          candidates.push(btn);
-        }
-      });
-    });
-    return candidates;
-  }
-
-  // ─── MutationObserver ────────────────────────────────────────────────────────
+  // ─── MutationObserver — только следим за добавлением нот в DOM, не вмешиваемся ──
   const observer = new MutationObserver(() => {
+    if (isFiltering) return; // не реагируем на наши собственные изменения
     injectCategoryTabs();
-
-    // Если вкладки уже инжектированы — поддерживаем фильтр при обновлении списка
-    if (injected && activeCategory !== 'all') {
-      filterAndSortModels(activeCategory);
-    }
-
-    // Сброс при закрытии dropdown
-    const catTabs = document.getElementById('mts-cat-tabs');
-    if (catTabs && !document.body.contains(catTabs)) {
-      injected = false;
-      activeCategory = 'all';
-    }
+    // Применяем текущий фильтр если он не "all"
+    if (activeCategory !== 'all') filterModels(activeCategory);
   });
+
+  injectStyles();
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => {
