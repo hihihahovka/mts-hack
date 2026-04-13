@@ -193,16 +193,17 @@ Original Model Selected by User: {original_model}
 Rules for Routing:
 1. If the user explicitly asks to generate an image ("нарисуй", "сгенерируй", "draw", "create an image", "изобрази"), you MUST select an Image Generation model (e.g., ID containing 'image', 'lightning', 'qwen-image', 'dall-e').
 2. If the user attached an image (has_image={has_image}), you MUST select a Vision Language Model (VLM) (e.g., ID containing 'vl', 'vision', 'cotype-pro-vl', 'qwen2.5-vl').
-3. If the user attached audio (has_audio={has_audio}), you MUST select an Audio model (e.g., 'whisper', 'asr').
-4. For ANY other standard text, reasoning, or coding questions, you MUST simply return the Original Model ID ({original_model}) chosen by the user. Do not try to be smart and pick another text model.
-5. DO NOT hallucinate. Only output exactly one Model ID from the Available Models list (or the Original Model ID).
+3. For ANY other standard text, reasoning, documents, audio (their transcripts), or coding questions, you MUST simply return the Original Model ID ({original_model}) chosen by the user. Do not try to be smart and pick another text or audio model.
+4. DO NOT hallucinate. Only output exactly one Model ID from the Available Models list (or the Original Model ID).
 
 <user_query_to_analyze>
 {last_message}
 </user_query_to_analyze>
 
-Provide your answer as a single string of the chosen model ID. NO EXCEPTIONS. JUST THE STRING ID.
-"""
+Provide your response strictly as a JSON object:
+{{
+  "id": "model_id_here"
+}}"""
         task_model_id = self.valves.router_model
         if not task_model_id or task_model_id not in models_dict:
             task_model_id = original_model
