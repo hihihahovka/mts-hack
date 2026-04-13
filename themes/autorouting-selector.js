@@ -338,26 +338,29 @@
     injectWidget(); // Сразу инжектим, если страница уже загружена
   }
 
-  // Перехватываем запросы к Chat Completions Svelte-фронтенда,
-  // чтобы незаметно прокидывать выбранный режим в metadata для backend-фильтра
+  // Перехватываем запросы к Chat Completions,
+  // чтобы надежно прокинуть выбранный режим (off/light/pro) через само сообщение,
+  // так как бэкенд (Pydantic) может обрезать кастомные поля вроде metadata.
   const originalFetch = window.fetch;
   window.fetch = async function(...args) {
-      const url = args[0];
-      if (url && typeof url === 'string' && url.includes('/api/chat/completions')) {
-          try {
-              const options = args[1];
-              if (options && options.body) {
-                  const bodyObj = JSON.parse(options.body);
-                  const mode = localStorage.getItem(LS_MODE_KEY) || 'off';
-                  if (!bodyObj.metadata) bodyObj.metadata = {};
-                  bodyObj.metadata.autorouting_mode = mode;
-                  options.body = JSON.stringify(bodyObj);
-                  args[1] = options;
+      try {
+          const urlStr = typeof args[0] === 'string' ? args[0] : (args[0] && args[0].url ? args[0].url : "");
+          let options = args[1];
+          if (options && options.body && typeof options.body === 'string') {
+              const bodyObj = JSON.parse(options.body);
+              if (bodyObj.messages && Array.isArray(bodyObj.messages)) {
+                  const lastMsg = bodyObj.messages[bodyObj.messages.length - 1];
+                  if (lastMsg && lastMsg.role === 'user' && typeof lastMsg.content === 'string') {
+                      const mode = localStorage.getItem(LS_MODE_KEY) || 'off';
+                      // Незаметно приклеиваем тег к сообщению
+                      lastMsg.content += `\n\n[MTS_ROUTING_MODE=${mode}]`;
+                      options.body = JSON.stringify(bodyObj);
+                      args[1] = options;
+                  }
               }
-          } catch(e) {
-              console.error("Autorouting interceptor error:", e);
           }
-      }
+      } catch(e) { } // Игнорируем ошибки сериализации, если это не наш запрос
+      
       return originalFetch.apply(this, args);
   };
 

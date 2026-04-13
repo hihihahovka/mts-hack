@@ -108,7 +108,19 @@ class Filter:
             return body
 
         original_model = body.get("model", "")
-        autorouting_mode = body.get("metadata", {}).get("autorouting_mode", "off")
+        
+        # Надежно извлекаем режим из самого сообщения (так как metadata может обрезаться бэкендом)
+        autorouting_mode = "off"
+        for msg in reversed(messages):
+            if msg.get("role") == "user":
+                content = msg.get("content", "")
+                if isinstance(content, str):
+                    mode_match = re.search(r"\[MTS_ROUTING_MODE=(off|light|pro)\]", content)
+                    if mode_match:
+                        autorouting_mode = mode_match.group(1)
+                        # Очищаем сообщение, чтобы языковая модель не увидела этот технический тег
+                        msg["content"] = content.replace(mode_match.group(0), "").strip()
+                break
 
         # Если авторутинг выключен, используется только выбранная пользователем модель
         if autorouting_mode == "off":
