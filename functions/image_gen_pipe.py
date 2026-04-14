@@ -75,14 +75,19 @@ class Pipe:
         # Skip background tasks — OpenWebUI sends title_generation, tags_generation,
         # emoji_generation, etc. to the same model. Without this check, each task
         # would trigger a separate image generation API call.
-        BACKGROUND_TASKS = {
-            "title_generation", "tags_generation", "emoji_generation",
+        # We return sensible defaults so OpenWebUI can parse them properly.
+        task = body.get("metadata", {}).get("task", "")
+        if task == "title_generation":
+            return "Генерация изображения 🖼️"
+        elif task == "tags_generation":
+            return "image"
+        elif task == "emoji_generation":
+            return "🖼️"
+        elif task in {
             "follow_up_generation", "query_generation",
             "autocomplete_generation", "image_prompt_generation",
             "moa_response_generation", "function_calling",
-        }
-        task = body.get("metadata", {}).get("task", "")
-        if task in BACKGROUND_TASKS:
+        }:
             return ""
         # Determine which model was selected
         model_id = body.get("model", "")
