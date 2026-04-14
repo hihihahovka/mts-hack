@@ -5,5 +5,8 @@ FROM ghcr.io/open-webui/open-webui:main
 # Fix upstream bug: uncomment `db = None` to prevent UnboundLocalError in db.py
 RUN sed -i 's/# db = None/db = None/' /app/backend/open_webui/internal/db.py
 
+# Install additional dependencies for tools
+RUN pip install rank-bm25
+
 # Копируем кастомную тему (будет доступна по /static/custom.css)
 # COPY themes/custom.css /app/build/static/custom.css
