@@ -154,10 +154,10 @@ RULES:
 
 INLINE CITATION RULES:
 - After each specific fact, claim, or statistic, add an inline citation
-- Format: [N](url) where N is the source number and url is the EXACT URL from the source reference list
-- Place the citation immediately after the relevant sentence or fact
-- Multiple sources for one fact: [1](url1) [2](url2)
-- Example: "Температура выросла на 1.5°C за последние 10 лет [3](https://example.com/article)."
+- Format: [<sup>N</sup>](url) where N is the source number and url is the EXACT URL from the source reference list
+- Place the citation immediately after the relevant sentence or fact (before the period if possible)
+- Multiple sources for one fact: [<sup>1</sup>](url1)[<sup>2</sup>](url2)
+- Example: "Температура выросла на 1.5°C за последние 10 лет[<sup>3</sup>](https://example.com/article)."
 - Do NOT cite every sentence — only where the fact is specific and traceable to a source
 
 STRICT FORMAT (use ## headers exactly as shown):
