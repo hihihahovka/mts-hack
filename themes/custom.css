@@ -224,16 +224,30 @@ select,
    Глобальные акцентные переопределения для обеих тем МТС
    ============================================================ */
 
-/* Scrollbar */
+/* Scrollbar — МТС красный */
+:root[data-theme^="mts"] ::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
 :root[data-theme^="mts"] ::-webkit-scrollbar-thumb {
-  background-color: var(--mts-neutral-600);
+  background-color: var(--mts-red);
   border-radius: 4px;
+  transition: background-color 0.2s ease;
+}
+:root[data-theme^="mts"] ::-webkit-scrollbar-thumb:hover {
+  background-color: var(--mts-red-light);
 }
 :root[data-theme^="mts"] ::-webkit-scrollbar-track {
   background-color: var(--mts-neutral-900);
+  border-radius: 4px;
 }
 :root[data-theme="mts-light"] ::-webkit-scrollbar-track {
   background-color: var(--mts-neutral-100);
+}
+/* Firefox */
+:root[data-theme^="mts"] * {
+  scrollbar-color: var(--mts-red) transparent;
+  scrollbar-width: thin;
 }
 
 /* Выделение текста */
