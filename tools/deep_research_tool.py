@@ -34,14 +34,61 @@ OpenWebUI Tool — Multi-step research agent с Map-Reduce pipeline.
 
 import httpx
 import asyncio
+import ipaddress
 import json
 import logging
 import os
 import re
+import socket
 from collections import Counter
 from typing import List, Dict, Any, Optional
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import urlsplit, urlunsplit, urlparse
 from pydantic import BaseModel, Field
+
+
+# ─── SSRF Protection ───────────────────────────────────────────────
+# Блокируем запросы к внутренним/приватным сетям и Docker-сервисам,
+# чтобы LLM не могла быть обманута в чтение метаданных облака,
+# внутренних БД или других контейнеров в docker-compose сети.
+# ────────────────────────────────────────────────────────────────────
+
+BLOCKED_HOSTNAMES = {
+    "localhost", "postgres", "searxng", "whisper-api", "open-webui",
+    "seed", "portainer", "dozzle", "redis", "mongo", "mysql",
+    "metadata.google.internal", "metadata.internal",
+}
+
+
+def is_safe_url(url: str) -> tuple[bool, str]:
+    """
+    Validates that a URL does not point to internal/private network resources.
+    Returns (is_safe, reason) tuple.
+    """
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return False, "Invalid URL"
+
+    if parsed.scheme not in ("http", "https"):
+        return False, f"Blocked scheme: {parsed.scheme}"
+
+    hostname = (parsed.hostname or "").strip().lower()
+    if not hostname:
+        return False, "Missing hostname"
+
+    if hostname in BLOCKED_HOSTNAMES:
+        return False, f"Blocked internal host: {hostname}"
+
+    try:
+        resolved_ips = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+        for family, _, _, _, sockaddr in resolved_ips:
+            ip = ipaddress.ip_address(sockaddr[0])
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+                return False, f"Address {ip} is in a private/reserved range"
+    except socket.gaierror:
+        pass
+
+    return True, ""
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # PROMPTS — English versions from research (GPT Researcher / STORM patterns)
@@ -670,7 +717,14 @@ class Tools:
     async def _read_url(self, url: str, __event_emitter__=None) -> str:
         """
         Парсинг страницы: сначала Jina Reader, при ошибке — прямой скрейпинг.
+        Включает SSRF-проверку перед любыми HTTP-запросами.
         """
+        # ── SSRF Guard ──
+        safe, reason = is_safe_url(url)
+        if not safe:
+            logger.warning(f"SSRF blocked: {url} — {reason}")
+            return f"### Источник: {url}\n\n[🛡️ Запрос заблокирован (SSRF): {reason}]"
+
         if __event_emitter__:
             short_url = url[:60] + "..." if len(url) > 60 else url
             await self.emit_status(__event_emitter__, f"📖 Читаю: {short_url}", False)
