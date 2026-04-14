@@ -572,10 +572,8 @@ select,
    МТС Красный — лаконичные акценты в главном интерфейсе
    ============================================================ */
 
-/* 1. Тонкая красная левая граница сайдбара — фирменный разделитель */
-:root[data-theme^="mts"] #sidebar {
-  border-right: 2px solid rgba(255, 0, 50, 0.25) !important;
-}
+/* 1. Граница сайдбара — отключена */
+/* :root[data-theme^="mts"] #sidebar { border-right: ... } */
 
 /* 2. Кнопка отправки сообщения — красная */
 :root[data-theme^="mts"] button[aria-label="Send message"],
@@ -603,16 +601,15 @@ select,
   color: var(--mts-red) !important;
 }
 
-/* 5. Иконка приложения в шапке сайдбара — лёгкое красное свечение */
+/* 5. Логотип МТС — строго квадратный, без скруглений */
 :root[data-theme^="mts"] #sidebar img[src*="favicon"],
-:root[data-theme^="mts"] #sidebar img[alt*="logo"] {
-  filter: drop-shadow(0 0 6px rgba(255, 0, 50, 0.45));
-  border-radius: 6px;
+:root[data-theme^="mts"] #sidebar img[alt*="logo"],
+img[src*="favicon"],
+img[src*="splash"] {
+  border-radius: 0 !important;
+  aspect-ratio: 1 / 1;
+  object-fit: contain;
 }
 
-/* 6. Поле ввода в фокусе — красный outline */
-:root[data-theme^="mts"] div[contenteditable]:focus,
-:root[data-theme^="mts"] div[id*="chat-input"]:focus-within {
-  outline: none;
-  box-shadow: 0 0 0 2px rgba(255, 0, 50, 0.35) !important;
-}
+/* 6. Поле ввода в фокусе — стандартный стиль (красный outline отключён) */
+/* :root[data-theme^="mts"] div[contenteditable]:focus { ... } */
