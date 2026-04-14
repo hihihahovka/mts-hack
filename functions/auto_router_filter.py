@@ -229,5 +229,5 @@ class Filter:
                 content = msg.get("content", "")
                 if isinstance(content, str) and content:
                     msg["content"] += f"\n\n---\n🤖 *{routed_model}* — {self._routing_reason}\n"
-                    break
+                    break 
         return body
