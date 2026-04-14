@@ -1,10 +1,11 @@
 /**
- * MTS AI Workspace — Citation Pills v3
+ * MTS AI Workspace — Citation Pills v4
  * ======================================
  * Стилизует citation-ссылки как pill-бейджи.
  *
- * Шаг 1: Матчит <a href> с текстом "(N)" → pill-бейдж + запоминает N→URL
- * Шаг 2: Находит голые "(N)" в тексте и заменяет на <a>-ссылки из карты → pill
+ * Шаг 1: Читает скрытую JSON-карту из HTML-комментария <!-- mts-cite-map:{...} -->
+ *         Карта: { "N": "https://..." }
+ * Шаг 2: Находит [N] в тексте и заменяет на кликабельный pill-бейдж
  */
 (function () {
   'use strict';
@@ -73,17 +74,17 @@
         white-space: nowrap !important;
         max-width: 130px !important;
       }
+      /* Скрываем HTML-комментарий с JSON-картой */
+      .mts-cite-map-node { display: none !important; }
     `;
     document.head.appendChild(style);
   }
 
-  // Карта: номер цитаты → URL  (заполняется при обработке <a> элементов)
+  // Карта: N (строка) → URL
   const urlMap = {};
 
-  // Матчит текст вида: (2) OR (2) Some title text
-  const CITE_RE = /^\((\d+)\)(?:\s+(.+))?$/;
-  // Матчит голый (N) в тексте
-  const BARE_RE = /\((\d+)\)/g;
+  // Регекс для поиска [N] в тексте, например [1] [12]
+  const BRACKET_RE = /\[(\d+)\]/g;
 
   function getDomain(href) {
     try {
@@ -105,36 +106,37 @@
     );
   }
 
-  /** Шаг 1: Превращает <a href> с текстом "(N)" в pill и запоминает маппинг */
-  function pillify(a) {
-    if (a.dataset.mtsPill) return;
-
-    const raw = (a.textContent || '').trim();
-    const m = raw.match(CITE_RE);
-    if (!m) return;
-
-    const href = a.getAttribute('href') || '';
-    if (!href.startsWith('http')) return;
-
-    a.dataset.mtsPill = '1';
-
-    const num = m[1];
-    // Запоминаем маппинг для шага 2
-    if (!urlMap[num]) urlMap[num] = href;
-
-    let label = (m[2] || '').trim();
-    if (!label) label = getDomain(href);
-    if (label.length > 30) label = label.slice(0, 30).trimEnd();
-
-    a.classList.add('mts-pill');
-    a.setAttribute('target', '_blank');
-    a.setAttribute('rel', 'noopener noreferrer');
-    a.title = href;
-    a.innerHTML = buildPillHTML(num, label);
+  /**
+   * Парсит HTML-комментарии вида <!-- mts-cite-map:{...} --> из DOM
+   * и заполняет urlMap данными из JSON.
+   */
+  function extractCiteMap(root) {
+    const walker = document.createTreeWalker(
+      root instanceof Document ? document.body : root,
+      NodeFilter.SHOW_COMMENT,
+      null
+    );
+    let node;
+    while ((node = walker.nextNode())) {
+      const text = node.nodeValue || '';
+      const match = text.match(/^\s*mts-cite-map:(\{[\s\S]*\})\s*$/);
+      if (match) {
+        try {
+          const parsed = JSON.parse(match[1]);
+          Object.assign(urlMap, parsed);
+          // Скрываем родительский элемент комментария если возможно
+          if (node.parentElement) {
+            node.parentElement.classList.add('mts-cite-map-node');
+          }
+        } catch (e) {
+          console.warn('[MTS] Failed to parse mts-cite-map JSON:', e);
+        }
+      }
+    }
   }
 
-  /** Шаг 2: Заменяет голые (N) в текстовых узлах на pill-ссылки из urlMap */
-  function replaceBareCitations(root) {
+  /** Заменяет [N] в текстовых узлах на pill-ссылки из urlMap */
+  function replaceBracketCitations(root) {
     if (!Object.keys(urlMap).length) return;
 
     const walker = document.createTreeWalker(
@@ -142,16 +144,17 @@
       NodeFilter.SHOW_TEXT,
       {
         acceptNode(node) {
-          // Пропускаем текст внутри <a>, <code>, <pre>, <script>
           const parent = node.parentElement;
           if (!parent) return NodeFilter.FILTER_REJECT;
           const tag = parent.tagName.toLowerCase();
+          // Пропускаем <a>, <code>, <pre>, <script>, <style>
           if (['a', 'code', 'pre', 'script', 'style'].includes(tag)) {
             return NodeFilter.FILTER_REJECT;
           }
-          // Только если есть хотя бы один (N)
-          if (!BARE_RE.test(node.textContent)) return NodeFilter.FILTER_REJECT;
-          BARE_RE.lastIndex = 0;
+          // Принимаем только если есть [N]
+          BRACKET_RE.lastIndex = 0;
+          if (!BRACKET_RE.test(node.textContent)) return NodeFilter.FILTER_REJECT;
+          BRACKET_RE.lastIndex = 0;
           return NodeFilter.FILTER_ACCEPT;
         }
       }
@@ -163,15 +166,16 @@
 
     for (const textNode of nodesToReplace) {
       const text = textNode.textContent;
-      // Разбиваем на части по паттерну (N)
-      const parts = text.split(/(\(\d+\))/);
+      // Разбиваем на части по [N]
+      const parts = text.split(/(\[\d+\])/);
       if (parts.length <= 1) continue;
 
       let changed = false;
       const fragment = document.createDocumentFragment();
 
       for (const part of parts) {
-        const mPart = part.match(/^\((\d+)\)$/);
+        BRACKET_RE.lastIndex = 0;
+        const mPart = part.match(/^\[(\d+)\]$/);
         if (mPart && urlMap[mPart[1]]) {
           const num = mPart[1];
           const href = urlMap[num];
@@ -197,39 +201,42 @@
     }
   }
 
-  /** Сканирует элемент: сначала <a> пиллы, потом голые (N) */
+  /** Полный проход: сначала читаем карту, потом заменяем [N] */
   function scan(root) {
-    const el = root.querySelectorAll ? root : document;
-    el.querySelectorAll('a[href]').forEach(a => {
-      try { pillify(a); } catch (_) {}
-    });
-    // После сбора urlMap — заменяем голые (N)
-    try { replaceBareCitations(el); } catch (_) {}
+    try { extractCiteMap(root); } catch (_) {}
+    try { replaceBracketCitations(root); } catch (_) {}
   }
 
   const obs = new MutationObserver(muts => {
-    let needTextScan = false;
+    let needScan = false;
     for (const m of muts) {
       for (const n of m.addedNodes) {
-        if (n.nodeType !== 1) continue;
-        // Новые <a> → pillify и обновить карту
-        n.querySelectorAll && n.querySelectorAll('a[href]').forEach(a => {
-          try { pillify(a); } catch (_) {}
-        });
-        if (n.tagName === 'A') try { pillify(n); } catch (_) {}
-        needTextScan = true;
+        if (n.nodeType === Node.COMMENT_NODE) {
+          // Новый комментарий — возможно карта
+          const text = n.nodeValue || '';
+          if (text.includes('mts-cite-map:')) {
+            try {
+              const match = text.match(/mts-cite-map:(\{[\s\S]*\})/);
+              if (match) Object.assign(urlMap, JSON.parse(match[1]));
+            } catch (_) {}
+            needScan = true;
+          }
+        } else if (n.nodeType === 1) {
+          // Новый элемент — ищем комментарии внутри
+          try { extractCiteMap(n); } catch (_) {}
+          needScan = true;
+        }
       }
     }
-    // Один проход по тексту после пачки мутаций
-    if (needTextScan) {
-      try { replaceBareCitations(document.body); } catch (_) {}
+    if (needScan) {
+      try { replaceBracketCitations(document.body); } catch (_) {}
     }
   });
 
   function init() {
     scan(document);
     obs.observe(document.body, { childList: true, subtree: true });
-    console.log('[MTS] Citation pills v3 ready (bare-citation patch enabled)');
+    console.log('[MTS] Citation pills v4 ready (square-bracket [N] mode)');
   }
 
   if (document.readyState === 'loading') {

@@ -155,11 +155,11 @@ RULES:
 
 INLINE CITATION RULES:
 - After each specific fact, claim, or statistic, add an inline citation
-- Format: [(N)](url) where N is the source number and url is the EXACT URL from the source reference list
+- Format: [N] where N is the source number from the source reference list
 - Place the citation immediately after the relevant word or fact, before the period
-- Multiple sources for one fact: [(1)](url1)[(2)](url2) — no space between them
-- Example: "Температура выросла на 1.5°C за последние 10 лет[(3)](https://example.com/article)."
-- Do NOT use HTML tags or Unicode characters — use ONLY the plain [(N)](url) format
+- Multiple sources for one fact: [1][2] — no space between them
+- Example: "Температура выросла на 1.5°C за последние 10 лет [3]."
+- Do NOT use HTML tags, URLs, or round brackets inside citations — use ONLY the plain [N] format
 - Cite every specific fact, number, or claim that is traceable to a source
 
 STRICT FORMAT:
@@ -182,7 +182,7 @@ STRICT FORMAT:
 
 STAGE_REDUCE_USER_TEMPLATE = """Topic: "{topic}"
 
-Source reference list (use these EXACT URLs in [(N)](url) inline citations):
+Source reference list (use these numbers N in [N] inline citations):
 {source_refs}
 
 Source extracts ({n_sources} sources):
@@ -1227,41 +1227,46 @@ class Tools:
             if m_sources:
                 final_report = final_report[:m_sources.start()].rstrip()
 
-            # --- Post-processing: нормализуем все цитаты к [(N)](url) ---
-            # citation-pills.js делает две вещи:
-            #   1) ищет <a href="url">(N)</a>  → pill-бейдж + запоминает N→URL в urlMap
-            #   2) заменяет голые (N) в тексте → pill с URL из urlMap
-            # Поэтому ЕДИНСТВЕННЫЙ правильный формат — [(N)](url) БЕЗ label.
-            # Любой label внутри скобок сломает CITE_RE и urlMap не заполнится.
+            # --- Post-processing: нормализуем все цитаты к [N] ---
+            # citation-pills.js ищет [N] в тексте и заменяет на pill-бейджи,
+            # используя скрытую JSON-карту N→URL которую мы вставляем в конец.
 
-            # Используем url_to_index из MAP-фазы (там уже правильные N).
-            # Fallback-счётчик для URL, которые LLM добавил сам (не из списка источников).
+            # Строим инвертированный маппинг index→url для JSON-карты.
             _cite_map: dict = dict(url_to_index) if url_to_index else {}
             _cite_counter = [len(_cite_map)]
 
-            def _cite_n(url: str) -> int:
+            def _cite_n_from_url(url: str) -> int:
                 if url not in _cite_map:
                     _cite_counter[0] += 1
                     _cite_map[url] = _cite_counter[0]
                 return _cite_map[url]
 
             def _fmt_cite(url: str) -> str:
-                return f"[({_cite_n(url)})]({url})"
+                """Возвращает [N] и регистрирует URL в карте."""
+                return f"[{_cite_n_from_url(url)}]"
 
-            # 1) Голый URL в скобках: (https://...)
+            # 1) Голый URL в скобках: (https://...) → [N]
             final_report = re.sub(
                 r'\((https?://[^\s\)]{10,})\)',
                 lambda m: _fmt_cite(m.group(1).rstrip(".,;:!?)")),
                 final_report,
             )
 
-            # 2) Любая markdown-ссылка с числом/индексом в тексте:
-            #    [N](url)  [(N)](url)  [(N) Label](url)  [¹](url)
+            # 2) Markdown-ссылки разных видов → [N]
+            #    [(N)](url)  [N](url)  [(N) Label](url)  [¹](url)
             final_report = re.sub(
                 r'\[(?:[⁰¹²³⁴⁵⁶⁷⁸⁹]+|\(?[\d]+\)?(?:\s[^\]]{0,50})?)\]\((https?://[^\)]{10,})\)',
                 lambda m: _fmt_cite(m.group(1).rstrip(".,;:!?)")),
                 final_report,
             )
+
+            # 3) Вставляем скрытую JSON-карту N→URL в конец, чтобы citation-pills.js
+            #    мог резолвить [N] → конкретный URL для pill-ссылки.
+            if _cite_map:
+                index_to_url = {str(v): k for k, v in _cite_map.items()}
+                import json as _json
+                cite_json = _json.dumps(index_to_url, ensure_ascii=False)
+                final_report += f"\n\n<!-- mts-cite-map:{cite_json} -->"
 
             # Если инлайн-цитирование активно — источники уже вшиты в текст,
             # список в конце не нужен. Иначе (монолитный путь) — выводим список.
@@ -1276,7 +1281,7 @@ class Tools:
             await self.emit_status(__event_emitter__, "", True)
             # Возвращаем инструкцию заглушить LLM-синтез.
             # Open WebUI передаёт это как tool result → LLM видит "ничего не добавляй" и молчит.
-            return "Отчёт полностью готов и уже отображён пользователю выше. НЕ добавляй никакого дополнительного текста, комментариев или резюме — ответ уже завершён."
+            return "\n\nОтчёт полностью готов и уже отображён пользователю выше. НЕ добавляй никакого дополнительного текста, комментариев или резюме — ответ уже завершён."
 
         except Exception as e:
             logger.error(f"Synthesis failed: {e}")
