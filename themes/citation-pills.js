@@ -32,20 +32,20 @@
         vertical-align: middle !important;
         position: relative !important;
         top: -1px !important;
+        font-family: 'MTS Text', -apple-system, BlinkMacSystemFont, sans-serif !important;
         transition: background 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease !important;
-        background: rgba(99, 153, 255, 0.13) !important;
-        color: #3b6fd4 !important;
-        border: 1px solid rgba(99, 153, 255, 0.28) !important;
+        background: rgba(255, 0, 50, 0.10) !important;
+        color: #FF0032 !important;
+        border: 1px solid rgba(255, 0, 50, 0.25) !important;
       }
-      [data-theme="dark"] a.mts-pill,
       .dark a.mts-pill {
-        background: rgba(120, 170, 255, 0.14) !important;
-        color: #8ab4ff !important;
-        border: 1px solid rgba(120, 170, 255, 0.22) !important;
+        background: rgba(255, 0, 50, 0.12) !important;
+        color: #FF3358 !important;
+        border: 1px solid rgba(255, 0, 50, 0.28) !important;
       }
       a.mts-pill:hover {
-        background: rgba(99, 153, 255, 0.22) !important;
-        box-shadow: 0 1px 7px rgba(99, 153, 255, 0.28) !important;
+        background: rgba(255, 0, 50, 0.20) !important;
+        box-shadow: 0 1px 8px rgba(255, 0, 50, 0.30) !important;
         transform: translateY(-1px) !important;
       }
       a.mts-pill:active {
@@ -61,12 +61,11 @@
         font-size: 10px !important;
         font-weight: 700 !important;
         flex-shrink: 0 !important;
-        background: rgba(99, 153, 255, 0.22) !important;
+        background: rgba(255, 0, 50, 0.20) !important;
         color: inherit !important;
       }
-      [data-theme="dark"] a.mts-pill .mts-pill-num,
       .dark a.mts-pill .mts-pill-num {
-        background: rgba(120, 170, 255, 0.25) !important;
+        background: rgba(255, 0, 50, 0.28) !important;
       }
       a.mts-pill .mts-pill-label {
         overflow: hidden !important;
@@ -78,7 +77,7 @@
     document.head.appendChild(style);
   }
 
-  // Матчит텍스트вида: (2) OR (2) Some title text
+  // Матчит текст вида: (2) OR (2) Some title text
   const CITE_RE = /^\((\d+)\)(?:\s+(.+))?$/;
 
   function getDomain(href) {
@@ -129,7 +128,7 @@
 
   function scan(root) {
     (root.querySelectorAll ? root : document).querySelectorAll('a[href]').forEach(a => {
-      try { pillify(a); } catch (_) {}
+      try { pillify(a); } catch (_) { }
     });
   }
 
@@ -138,7 +137,7 @@
       for (const n of m.addedNodes) {
         if (n.nodeType !== 1) continue;
         scan(n);
-        if (n.tagName === 'A') try { pillify(n); } catch (_) {}
+        if (n.tagName === 'A') try { pillify(n); } catch (_) { }
       }
     }
   });
