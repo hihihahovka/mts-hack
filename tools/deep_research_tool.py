@@ -1227,75 +1227,39 @@ class Tools:
             if m_sources:
                 final_report = final_report[:m_sources.start()].rstrip()
 
-            # --- Post-processing: конвертируем URL-цитаты в кликабельные pill-сноски ---
-            def _find_title(url: str) -> str:
-                """Ищет заголовок по URL: точное совпадение → fuzzy по netloc → домен."""
-                # 1) Точное совпадение
-                title = url_to_title.get(url, "")
-                if title:
-                    return title
+            # --- Post-processing: нормализуем все цитаты к [(N)](url) ---
+            # citation-pills.js делает две вещи:
+            #   1) ищет <a href="url">(N)</a>  → pill-бейдж + запоминает N→URL в urlMap
+            #   2) заменяет голые (N) в тексте → pill с URL из urlMap
+            # Поэтому ЕДИНСТВЕННЫЙ правильный формат — [(N)](url) БЕЗ label.
+            # Любой label внутри скобок сломает CITE_RE и urlMap не заполнится.
 
-                # 2) Fuzzy: ищем по совпадению netloc + начала пути
-                try:
-                    p = urlparse(url)
-                    target_netloc = p.netloc.lower()
-                    target_path = p.path.rstrip("/").lower()
-                    for stored_url, stored_title in url_to_title.items():
-                        sp = urlparse(stored_url)
-                        if sp.netloc.lower() == target_netloc:
-                            sp_path = sp.path.rstrip("/").lower()
-                            # Считаем совпадением если пути совпадают или один начинается с другого
-                            if sp_path == target_path or sp_path.startswith(target_path) or target_path.startswith(sp_path):
-                                return stored_title
-                except Exception:
-                    pass
+            # Используем url_to_index из MAP-фазы (там уже правильные N).
+            # Fallback-счётчик для URL, которые LLM добавил сам (не из списка источников).
+            _cite_map: dict = dict(url_to_index) if url_to_index else {}
+            _cite_counter = [len(_cite_map)]
 
-                return ""
+            def _cite_n(url: str) -> int:
+                if url not in _cite_map:
+                    _cite_counter[0] += 1
+                    _cite_map[url] = _cite_counter[0]
+                return _cite_map[url]
 
-            def _make_footnote(url: str, url_to_fn: dict) -> str:
-                """Возвращает pill-ссылку [(N) Label](url) с заголовком или доменом."""
-                if url not in url_to_fn:
-                    url_to_fn[url] = len(url_to_fn) + 1
-                n = url_to_fn[url]
+            def _fmt_cite(url: str) -> str:
+                return f"[({_cite_n(url)})]({url})"
 
-                raw_title = _find_title(url)
-                if raw_title:
-                    # Убираем мусор типа [PDF], [D] и берём первые 4 слова
-                    clean = re.sub(r'\[.*?\]\s*', '', raw_title).strip()
-                    words = clean.split()[:4]
-                    label = " ".join(words)
-                    if len(label) > 30:
-                        label = label[:30].rstrip()
-                else:
-                    # Fallback — домен без www
-                    try:
-                        label = urlparse(url).netloc.replace("www.", "")
-                    except Exception:
-                        label = url[:25]
-
-                return f"[({n}) {label}]({url})"
-
-            url_to_fn: dict = {}
-
-            # 1) Паттерн: (https://...) — LLM вставил голый URL в скобках
-            def _replace_paren_url(m: re.Match) -> str:
-                url = m.group(1).rstrip(".,;:!?)")
-                return _make_footnote(url, url_to_fn)
-
+            # 1) Голый URL в скобках: (https://...)
             final_report = re.sub(
                 r'\((https?://[^\s\)]{10,})\)',
-                _replace_paren_url,
+                lambda m: _fmt_cite(m.group(1).rstrip(".,;:!?)")),
                 final_report,
             )
 
-            # 2) Паттерн: [N](url), [¹](url), [(N)](url) — уже markdown-ссылки, нормализуем в (N)
-            def _replace_md_citation(m: re.Match) -> str:
-                url = m.group(2).rstrip(".,;:!?")
-                return _make_footnote(url, url_to_fn)
-
+            # 2) Любая markdown-ссылка с числом/индексом в тексте:
+            #    [N](url)  [(N)](url)  [(N) Label](url)  [¹](url)
             final_report = re.sub(
-                r'\[(?:[⁰¹²³⁴⁵⁶⁷⁸⁹]+|\(?\d+\)?)\]\((https?://[^\)]{10,})\)',
-                _replace_md_citation,
+                r'\[(?:[⁰¹²³⁴⁵⁶⁷⁸⁹]+|\(?[\d]+\)?(?:\s[^\]]{0,50})?)\]\((https?://[^\)]{10,})\)',
+                lambda m: _fmt_cite(m.group(1).rstrip(".,;:!?)")),
                 final_report,
             )
 
