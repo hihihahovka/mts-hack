@@ -41,6 +41,7 @@ open http://localhost:8080
 | **SearXNG** | 8888 | Web Search |
 | **Ollama** | 11434 | VLM (Moondream 2B) |
 | **Whisper API** | 9000 | Голосовой ввод (ASR) |
+| **Voice Chat** | 9001 | Realtime голосовой чат (WebSocket) |
 
 ## 🧠 Модели MWS GPT
 
@@ -63,6 +64,7 @@ open http://localhost:8080
 - ✅ **Долгосрочная память** — экстракция фактов о пользователе
 - ✅ **TTS** — edge-tts (русский язык)
 - ✅ **Deep Research** — multi-step research agent
+- ✅ **Realtime Voice Chat** — голосовой чат как в ChatGPT (WebSocket + Whisper + edge-tts)
 - ✅ **Система тем** — 7 цветовых палитр
 
 ## 🏗️ Архитектура

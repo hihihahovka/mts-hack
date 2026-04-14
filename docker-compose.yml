@@ -110,6 +110,26 @@ services:
     restart: unless-stopped
 
   # ============================================================
+  # Voice Chat — Realtime Voice Assistant (WebSocket)
+  # ============================================================
+  voice-chat:
+    build:
+      context: ./services/voice_chat
+      dockerfile: Dockerfile
+    container_name: voice-chat-${ENV_NAME:-local}
+    ports:
+      - "${VOICE_CHAT_PORT:-9001}:9001"
+    environment:
+      - MWS_API_KEY=${MWS_API_KEY}
+      - MWS_API_BASE_URL=https://api.gpt.mws.ru/v1
+      - WHISPER_MODEL=small
+      - TTS_VOICE=ru-RU-DmitryNeural
+      - DEFAULT_MODEL=mws-gpt-alpha
+    networks:
+      - mts-net
+    restart: unless-stopped
+
+  # ============================================================
   # Seed Service
   # ============================================================
   seed:
