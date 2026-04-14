@@ -1206,6 +1206,47 @@ class Tools:
             if m_sources:
                 final_report = final_report[:m_sources.start()].rstrip()
 
+            # --- Post-processing: конвертируем URL-цитаты в кликабельные сноски ---
+            # Юникодные суперскрипты для цифр 1-20
+            SUPER = {
+                1: "¹", 2: "²", 3: "³", 4: "⁴", 5: "⁵",
+                6: "⁶", 7: "⁷", 8: "⁸", 9: "⁹", 10: "¹⁰",
+                11: "¹¹", 12: "¹²", 13: "¹³", 14: "¹⁴", 15: "¹⁵",
+                16: "¹⁶", 17: "¹⁷", 18: "¹⁸", 19: "¹⁹", 20: "²⁰",
+            }
+
+            def _make_footnote(url: str, url_to_fn: dict) -> str:
+                """Возвращает суперскрипт-ссылку для url, присваивая номер при первом появлении."""
+                if url not in url_to_fn:
+                    url_to_fn[url] = len(url_to_fn) + 1
+                n = url_to_fn[url]
+                sup = SUPER.get(n, f"[{n}]")
+                return f"[{sup}]({url})"
+
+            url_to_fn: dict = {}
+
+            # 1) Паттерн: (https://...) или (http://...) — LLM вставил URL в скобках
+            def _replace_paren_url(m: re.Match) -> str:
+                url = m.group(1).rstrip(".,;:!?)")
+                return _make_footnote(url, url_to_fn)
+
+            final_report = re.sub(
+                r'\((https?://[^\s\)]{10,})\)',
+                _replace_paren_url,
+                final_report,
+            )
+
+            # 2) Паттерн: [N](url) или [¹](url) — уже markdown-ссылки, нормализуем суперскрипт
+            def _replace_md_citation(m: re.Match) -> str:
+                url = m.group(2).rstrip(".,;:!?")
+                return _make_footnote(url, url_to_fn)
+
+            final_report = re.sub(
+                r'\[(?:[⁰¹²³⁴⁵⁶⁷⁸⁹]+|\d+)\]\((https?://[^\)]{10,})\)',
+                _replace_md_citation,
+                final_report,
+            )
+
             # Если инлайн-цитирование активно — источники уже вшиты в текст,
             # список в конце не нужен. Иначе (монолитный путь) — выводим список.
             if not using_inline_citations and source_lines and __event_emitter__:
