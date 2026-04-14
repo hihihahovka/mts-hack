@@ -35,7 +35,9 @@ install:
 	docker compose up -d --build --remove-orphans
 
 start:
-	@echo "[*] Запуск сервисов..."
+	@echo "[*] Пересборка seed и open-webui (обновление tools/functions + JS)..."
+	docker compose up -d --build --no-deps seed open-webui
+	@echo "[*] Запуск остальных сервисов..."
 	docker compose up -d --remove-orphans
 
 stop:

@@ -1206,14 +1206,37 @@ class Tools:
                 final_report = final_report[:m_sources.start()].rstrip()
 
             # --- Post-processing: конвертируем URL-цитаты в кликабельные pill-сноски ---
+            def _find_title(url: str) -> str:
+                """Ищет заголовок по URL: точное совпадение → fuzzy по netloc → домен."""
+                # 1) Точное совпадение
+                title = url_to_title.get(url, "")
+                if title:
+                    return title
+
+                # 2) Fuzzy: ищем по совпадению netloc + начала пути
+                try:
+                    p = urlparse(url)
+                    target_netloc = p.netloc.lower()
+                    target_path = p.path.rstrip("/").lower()
+                    for stored_url, stored_title in url_to_title.items():
+                        sp = urlparse(stored_url)
+                        if sp.netloc.lower() == target_netloc:
+                            sp_path = sp.path.rstrip("/").lower()
+                            # Считаем совпадением если пути совпадают или один начинается с другого
+                            if sp_path == target_path or sp_path.startswith(target_path) or target_path.startswith(sp_path):
+                                return stored_title
+                except Exception:
+                    pass
+
+                return ""
+
             def _make_footnote(url: str, url_to_fn: dict) -> str:
-                """Возвращает pill-ссылку [(N) Title](url) с заголовком статьи."""
+                """Возвращает pill-ссылку [(N) Label](url) с заголовком или доменом."""
                 if url not in url_to_fn:
                     url_to_fn[url] = len(url_to_fn) + 1
                 n = url_to_fn[url]
 
-                # Берём заголовок из url_to_title (собран на этапе поиска)
-                raw_title = url_to_title.get(url, "")
+                raw_title = _find_title(url)
                 if raw_title:
                     # Убираем мусор типа [PDF], [D] и берём первые 4 слова
                     clean = re.sub(r'\[.*?\]\s*', '', raw_title).strip()
@@ -1224,10 +1247,9 @@ class Tools:
                 else:
                     # Fallback — домен без www
                     try:
-                        domain = urlparse(url).netloc.replace("www.", "")
-                        label = domain
+                        label = urlparse(url).netloc.replace("www.", "")
                     except Exception:
-                        label = url[:20]
+                        label = url[:25]
 
                 return f"[({n}) {label}]({url})"
 
