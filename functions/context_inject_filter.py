@@ -443,7 +443,7 @@ class Filter:
         core_count = len(identity_facts) + len(user_facts) + len(feedback_facts)
         logger.info(
             f"[ContextInject] Injected {core_count} core ({len(identity_facts)} identity) + "
-            f"{len(project_facts)} project ({'semantic' if vector_search_succeeded else 'recency'}) + "
+            f"{len(project_facts)} project (recency) + "
             f"{len(local_facts)} local memories | scope={scope_label}"
         )
 
