@@ -1205,14 +1205,31 @@ class Tools:
             if m_sources:
                 final_report = final_report[:m_sources.start()].rstrip()
 
-            # --- Post-processing: конвертируем URL-цитаты в кликабельные сноски ---
-            # Юникодные суперскрипты для цифр 1-20
+            # --- Post-processing: конвертируем URL-цитаты в кликабельные pill-сноски ---
             def _make_footnote(url: str, url_to_fn: dict) -> str:
-                """Возвращает ссылку-сноску [(N)](url) для url, присваивая номер при первом появлении."""
+                """Возвращает pill-ссылку [(N) Title](url) с заголовком статьи."""
                 if url not in url_to_fn:
                     url_to_fn[url] = len(url_to_fn) + 1
                 n = url_to_fn[url]
-                return f"[({n})]({url})"
+
+                # Берём заголовок из url_to_title (собран на этапе поиска)
+                raw_title = url_to_title.get(url, "")
+                if raw_title:
+                    # Убираем мусор типа [PDF], [D] и берём первые 4 слова
+                    clean = re.sub(r'\[.*?\]\s*', '', raw_title).strip()
+                    words = clean.split()[:4]
+                    label = " ".join(words)
+                    if len(label) > 30:
+                        label = label[:30].rstrip()
+                else:
+                    # Fallback — домен без www
+                    try:
+                        domain = urlparse(url).netloc.replace("www.", "")
+                        label = domain
+                    except Exception:
+                        label = url[:20]
+
+                return f"[({n}) {label}]({url})"
 
             url_to_fn: dict = {}
 
