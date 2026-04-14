@@ -37,6 +37,10 @@ class Filter:
             default="",
             description="The model to use for routing decisions. Leave blank to use system default TASK_MODEL.",
         )
+        research_tool_id: str = Field(
+            default="deep_research_tool",
+            description="ID инструмента для глубокого поиска",
+        )
 
     def __init__(self):
         self.valves = self.Valves()
@@ -117,12 +121,6 @@ class Filter:
 
         log.info(f"[AutoRouter] mode={autorouting_mode}, model={original_model}")
 
-        # Если авторутинг выключен, используется только выбранная пользователем модель
-        if autorouting_mode == "off":
-            self._routing_reason = "Автопереключение выключено"
-            return body
-
-        # Определяем словари с моделями для каждого уровня
         LIGHT_MODELS = {
             "text": "llama-3.1-8b-instruct",
             "reasoning": "deepseek-r1-distill-qwen-32b",
@@ -141,11 +139,25 @@ class Filter:
             "audio": "whisper-medium",
         }
 
-        model_tier = LIGHT_MODELS if autorouting_mode == "light" else PRO_MODELS
+        model_tier = LIGHT_MODELS if autorouting_mode in ("light", "off") else PRO_MODELS
 
         last_message = self._get_last_user_message(messages)
         files = body.get("files", [])
         last_message_lower = last_message.lower()
+
+        research_keywords = [
+            "исследуй", "найди в интернете", "поиск в интернете", "глубокий поиск", "погугли",
+            "search the web", "deep research", "find online", "internet search",
+            "сделай рисёрч", "сделай ресерч", "research"
+        ]
+        
+        is_research = any(keyword in last_message_lower for keyword in research_keywords)
+
+        # Если авторутинг выключен, используется только выбранная пользователем модель,
+        # за исключением случаев глубокого поиска (когда мы подключаем тул).
+        if autorouting_mode == "off" and not is_research:
+            self._routing_reason = "Автопереключение выключено"
+            return body
 
         # Ключевые слова для определения интентов (РУ + EN)
         img_keywords = [
@@ -182,7 +194,27 @@ class Filter:
         routing_reason = ""
 
         # Строгая детерминированная логика переключения
-        if any(keyword in last_message_lower for keyword in img_keywords) and "код" not in last_message_lower:
+        if is_research:
+            if "tool_ids" not in body:
+                body["tool_ids"] = []
+            if getattr(self.valves, "research_tool_id", "deep_research_tool") not in body["tool_ids"]:
+                body["tool_ids"].append(getattr(self.valves, "research_tool_id", "deep_research_tool"))
+            
+            non_text_keywords = ["image", "whisper", "vl", "audio", "vision", "embedding"]
+            is_text_model = original_model and not any(k in original_model.lower() for k in non_text_keywords)
+            
+            if is_text_model:
+                routed_id = original_model
+                routing_reason = "Запрос на глубокий поиск (Deep Research Tool + Текущая текстовая модель)"
+            else:
+                routed_id = model_tier["text"]
+                routing_reason = "Запрос на глубокий поиск (Deep Research Tool + Смена на текстовую модель)"
+
+        elif autorouting_mode == "off":
+            self._routing_reason = "Автопереключение выключено"
+            return body
+
+        elif any(keyword in last_message_lower for keyword in img_keywords) and "код" not in last_message_lower:
             routed_id = model_tier["image"]
             routing_reason = "Запрос на генерацию изображения (Image Gen)"
         elif self._has_modality(messages, files, ["image"], (".png", ".jpg", ".jpeg", ".gif", ".webp")):
@@ -229,5 +261,5 @@ class Filter:
                 content = msg.get("content", "")
                 if isinstance(content, str) and content:
                     msg["content"] += f"\n\n---\n🤖 *{routed_model}* — {self._routing_reason}\n"
-                    break
+                    break 
         return body
