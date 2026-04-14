@@ -154,12 +154,11 @@ RULES:
 
 INLINE CITATION RULES:
 - After each specific fact, claim, or statistic, add an inline citation
-- Use Unicode superscript characters for source numbers: ¹ ² ³ ⁴ ⁵ ⁶ ⁷ ⁸ ⁹ ¹⁰
-- Format: [¹](url) for source 1, [²](url) for source 2, [³](url) for source 3, [⁴](url) for source 4, etc.
-- Place the citation IMMEDIATELY after the relevant word or fact, before the period
-- Multiple sources for one fact: [¹](url1)[²](url2) — no space between them
-- Example: "Температура выросла на 1.5°C за последние 10 лет[³](https://example.com/article)."
-- Do NOT use HTML tags like <sup> — use ONLY Unicode superscript characters
+- Format: [(N)](url) where N is the source number and url is the EXACT URL from the source reference list
+- Place the citation immediately after the relevant word or fact, before the period
+- Multiple sources for one fact: [(1)](url1)[(2)](url2) — no space between them
+- Example: "Температура выросла на 1.5°C за последние 10 лет[(3)](https://example.com/article)."
+- Do NOT use HTML tags or Unicode characters — use ONLY the plain [(N)](url) format
 - Do NOT cite every sentence — only where the fact is specific and traceable to a source
 
 STRICT FORMAT (use ## headers exactly as shown):
@@ -1208,24 +1207,16 @@ class Tools:
 
             # --- Post-processing: конвертируем URL-цитаты в кликабельные сноски ---
             # Юникодные суперскрипты для цифр 1-20
-            SUPER = {
-                1: "¹", 2: "²", 3: "³", 4: "⁴", 5: "⁵",
-                6: "⁶", 7: "⁷", 8: "⁸", 9: "⁹", 10: "¹⁰",
-                11: "¹¹", 12: "¹²", 13: "¹³", 14: "¹⁴", 15: "¹⁵",
-                16: "¹⁶", 17: "¹⁷", 18: "¹⁸", 19: "¹⁹", 20: "²⁰",
-            }
-
             def _make_footnote(url: str, url_to_fn: dict) -> str:
-                """Возвращает суперскрипт-ссылку для url, присваивая номер при первом появлении."""
+                """Возвращает ссылку-сноску [(N)](url) для url, присваивая номер при первом появлении."""
                 if url not in url_to_fn:
                     url_to_fn[url] = len(url_to_fn) + 1
                 n = url_to_fn[url]
-                sup = SUPER.get(n, f"[{n}]")
-                return f"[{sup}]({url})"
+                return f"[({n})]({url})"
 
             url_to_fn: dict = {}
 
-            # 1) Паттерн: (https://...) или (http://...) — LLM вставил URL в скобках
+            # 1) Паттерн: (https://...) — LLM вставил голый URL в скобках
             def _replace_paren_url(m: re.Match) -> str:
                 url = m.group(1).rstrip(".,;:!?)")
                 return _make_footnote(url, url_to_fn)
@@ -1236,13 +1227,13 @@ class Tools:
                 final_report,
             )
 
-            # 2) Паттерн: [N](url) или [¹](url) — уже markdown-ссылки, нормализуем суперскрипт
+            # 2) Паттерн: [N](url), [¹](url), [(N)](url) — уже markdown-ссылки, нормализуем в (N)
             def _replace_md_citation(m: re.Match) -> str:
                 url = m.group(2).rstrip(".,;:!?")
                 return _make_footnote(url, url_to_fn)
 
             final_report = re.sub(
-                r'\[(?:[⁰¹²³⁴⁵⁶⁷⁸⁹]+|\d+)\]\((https?://[^\)]{10,})\)',
+                r'\[(?:[⁰¹²³⁴⁵⁶⁷⁸⁹]+|\(?\d+\)?)\]\((https?://[^\)]{10,})\)',
                 _replace_md_citation,
                 final_report,
             )
