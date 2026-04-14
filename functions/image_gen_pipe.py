@@ -15,6 +15,8 @@ Usage:
 
 import os
 import logging
+import asyncio
+import base64
 import httpx
 from typing import Union, Generator, Iterator
 from pydantic import BaseModel, Field
@@ -179,10 +181,45 @@ class Pipe:
             if __event_emitter__:
                 await __event_emitter__({
                     "type": "status",
+                    "data": {"description": "⬇️ Загружаю изображение...", "done": False}
+                })
+
+            # Download the image and convert to base64 data URI.
+            # MWS API returns temporary URLs that expire quickly —
+            # without this conversion, images appear as broken links.
+            display_url = None
+            max_retries = 3
+            for attempt in range(1, max_retries + 1):
+                try:
+                    timeout = 30 * attempt  # 30s, 60s, 90s
+                    async with httpx.AsyncClient(timeout=timeout) as dl_client:
+                        img_response = await dl_client.get(image_url)
+                        img_response.raise_for_status()
+                        b64_data = base64.b64encode(img_response.content).decode("utf-8")
+                        content_type = img_response.headers.get("content-type", "image/png")
+                        display_url = f"data:{content_type};base64,{b64_data}"
+                        break
+                except Exception as e:
+                    logger.warning(f"[ImagePipe] Download attempt {attempt}/{max_retries} failed: {e}")
+                    if attempt < max_retries:
+                        await asyncio.sleep(2 * attempt)
+
+            if not display_url:
+                logger.error(f"[ImagePipe] All {max_retries} download attempts failed for {image_url}")
+                if __event_emitter__:
+                    await __event_emitter__({
+                        "type": "status",
+                        "data": {"description": "❌ Не удалось загрузить изображение", "done": True}
+                    })
+                return "❌ Изображение было сгенерировано, но не удалось загрузить для отображения. Попробуйте ещё раз."
+
+            if __event_emitter__:
+                await __event_emitter__({
+                    "type": "status",
                     "data": {"description": "✅ Изображение сгенерировано!", "done": True}
                 })
 
-            return f"![{revised_prompt}]({image_url})\n\n*Модель: **{model_id}** | Запрос: \"{prompt}\"*"
+            return f"![{revised_prompt}]({display_url})\n\n*Модель: **{model_id}** | Запрос: \"{prompt}\"*"
 
         except httpx.TimeoutException:
             logger.error("[ImagePipe] Request timed out")
