@@ -30,6 +30,9 @@ COPY --from=build /app/build /app/build
 # Копируем кастомную тему (будет доступна по /static/custom.css)
 COPY themes/custom.css /app/build/static/custom.css
 
+# Копируем фирменные шрифты МТС
+COPY themes/fonts/mts/ /app/build/static/fonts/
+
 # Копируем JS-виджет переключателя тем
 COPY themes/theme-selector.js /app/build/static/theme-selector.js
 
@@ -39,5 +42,8 @@ COPY themes/autorouting-selector.js /app/build/static/autorouting-selector.js
 # Копируем JS-виджет категорий моделей
 COPY themes/model-tags.js /app/build/static/model-tags.js
 
-# Инжектим скрипт переключателя тем и авторутинга в <head> HTML
-RUN sed -i 's|</head>|<script>var t=localStorage.getItem("mts-theme");if(t)document.documentElement.setAttribute("data-theme",t);</script><script defer src="/static/theme-selector.js"></script><script defer src="/static/autorouting-selector.js"></script><script src="/static/model-tags.js"></script></head>|' /app/build/index.html
+# Копируем JS-виджет цитат (citation pills)
+COPY themes/citation-pills.js /app/build/static/citation-pills.js
+
+# Инжектим скрипты МТС в <head> HTML
+RUN sed -i 's|</head>|<script>var t=localStorage.getItem("mts-theme")||"mts-dark";document.documentElement.setAttribute("data-theme",t);</script><link rel="stylesheet" href="/static/custom.css"><script defer src="/static/theme-selector.js"></script><script defer src="/static/autorouting-selector.js"></script><script src="/static/model-tags.js"></script><script defer src="/static/citation-pills.js"></script></head>|' /app/build/index.html
