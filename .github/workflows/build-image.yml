@@ -27,6 +27,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Lowercase branch name
+        id: branch
+        run: echo "name=$(echo ${GITHUB_REF_NAME} | tr '[:upper:]' '[:lower:]' | tr '_' '-')" >> $GITHUB_OUTPUT
+
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
@@ -48,8 +52,8 @@ jobs:
             ${{ env.GHCR_IMAGE }}
             ${{ env.DOCKERHUB_IMAGE }}
           tags: |
-            # tag with branch name (e.g. test, arseny-test, main)
-            type=ref,event=branch
+            # branch name, lowercased and sanitized
+            type=raw,value=${{ steps.branch.outputs.name }}
             # tag "latest" only for Test branch (main deployment branch)
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/Test' }}
             # tag with short commit SHA
