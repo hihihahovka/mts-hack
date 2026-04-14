@@ -118,49 +118,25 @@ class Tools:
                     await __event_emitter__(
                         {"type": "status", "data": {"description": "❌ Нет URL изображения в ответе", "done": True}}
                     )
-                return "❌ API вернул пустой URL изображения. Попробуйте ещё раз."
-
-            if __event_emitter__:
-                await __event_emitter__(
-                    {"type": "status", "data": {"description": "⬇️ Загружаю изображение...", "done": False}}
-                )
-
-            # Download the image and convert to base64 data URI
-            # Retry up to 3 times to handle transient failures
-            display_url = None
-            for attempt in range(3):
-                try:
-                    async with httpx.AsyncClient(timeout=60, follow_redirects=True) as client:
-                        img_response = await client.get(image_url)
-                        img_response.raise_for_status()
-                        b64_data = base64.b64encode(img_response.content).decode("utf-8")
-                        content_type = img_response.headers.get("content-type", "image/png")
-                        display_url = f"data:{content_type};base64,{b64_data}"
-                        break
-                except Exception as e:
-                    logger.warning(f"[ImageGen] Download attempt {attempt+1}/3 failed: {e}")
-                    if attempt == 2:
-                        logger.error(f"[ImageGen] All download attempts failed, using raw URL")
-                        display_url = image_url
-
             if __event_emitter__:
                 await __event_emitter__(
                     {"type": "status", "data": {"description": "✅ Изображение сгенерировано!", "done": True}}
                 )
 
-            # Emit image via event emitter for reliable inline display
-            # This avoids message size limits that can break rendering on repeat generations
-            image_markdown = f"![{revised_prompt}]({display_url})"
-            caption = f"\n\n*Модель: **{self.valves.model}** | Запрос: \"{prompt}\"*"
+            # Download the image and convert to base64 data URI
+            try:
+                async with httpx.AsyncClient(timeout=30) as client:
+                    img_response = await client.get(image_url)
+                    img_response.raise_for_status()
+                    b64_data = base64.b64encode(img_response.content).decode("utf-8")
+                    content_type = img_response.headers.get("content-type", "image/png")
+                    display_url = f"data:{content_type};base64,{b64_data}"
+            except Exception as e:
+                logger.warning(f"[ImageGen] Could not download image for inline display: {e}")
+                display_url = image_url
 
-            if __event_emitter__:
-                await __event_emitter__(
-                    {"type": "message", "data": {"content": image_markdown + caption}}
-                )
-                return ""
-            else:
-                # Fallback: return markdown directly if no event emitter
-                return image_markdown + caption
+            # Return markdown image — OpenWebUI will render it inline
+            return f"![{revised_prompt}]({display_url})\n\n*Сгенерировано моделью **{self.valves.model}** по запросу: \"{prompt}\"*"
 
         except httpx.TimeoutException:
             logger.error("[ImageGen] Request timed out")
