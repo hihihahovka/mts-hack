@@ -1,8 +1,10 @@
 services:
   # ============================================================
   # OpenWebUI — Main Chat Interface
+  # Pre-built image from GHCR (default), or local build (set BUILD_LOCAL=1)
   # ============================================================
   open-webui:
+    image: ${OPENWEBUI_IMAGE:-ghcr.io/hihihahovka/mts-hack/open-webui:latest}
     build:
       context: .
       dockerfile: Dockerfile.openwebui

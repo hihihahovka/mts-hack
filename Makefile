@@ -1,4 +1,4 @@
-.PHONY: help install start stop restart logs wipe status seed update test
+.PHONY: help install start stop restart logs wipe status seed update test pull build-local
 
 # Cross-platform commands
 ifeq ($(OS),Windows_NT)
@@ -9,6 +9,10 @@ else
     TOUCH_CMD = touch
 endif
 
+# Docker image settings
+IMAGE_NAME = ghcr.io/hihihahovka/mts-hack/open-webui
+IMAGE_TAG  = latest
+
 # Default target
 .DEFAULT_GOAL := help
 
@@ -16,16 +20,18 @@ help:
 	@echo "MTS AI Workspace — Project Management"
 	@echo ""
 	@echo "Available commands:"
-	@echo "  make install  - Initial setup (checks .env) and start the project"
-	@echo "  make start    - Start all services in the background"
-	@echo "  make stop     - Gracefully stop all services"
-	@echo "  make restart  - Restart services"
-	@echo "  make status   - Check the status of all containers"
-	@echo "  make logs     - View logs in real time"
-	@echo "  make seed     - Rebuild and restart seed (update tools/functions)"
-	@echo "  make update   - Update code (seed + open-webui) without rebuilding the rest"
-	@echo "  make test     - Run smoke tests (check all components)"
-	@echo "  make wipe     - WARNING: Remove all containers and clear all databases (Volumes)"
+	@echo "  make install     - Initial setup (checks .env) and start the project"
+	@echo "  make start       - Start all services in the background"
+	@echo "  make stop        - Gracefully stop all services"
+	@echo "  make restart     - Restart services"
+	@echo "  make status      - Check the status of all containers"
+	@echo "  make logs        - View logs in real time"
+	@echo "  make seed        - Rebuild and restart seed (update tools/functions)"
+	@echo "  make update      - Pull latest image from GHCR + restart open-webui & seed"
+	@echo "  make pull        - Pull latest pre-built image from GHCR"
+	@echo "  make build-local - Build open-webui image locally (slow, for development)"
+	@echo "  make test        - Run smoke tests (check all components)"
+	@echo "  make wipe        - WARNING: Remove all containers and clear all databases (Volumes)"
 
 # Check .env at make-parse time using $(wildcard), no shell needed
 install:
@@ -41,13 +47,12 @@ endif
 else
 	@echo "[*] .env file already exists. Skipping..."
 endif
-	@echo "[*] Building and starting services..."
-	docker compose up -d --build --remove-orphans
+	@echo "[*] Pulling pre-built image and starting services..."
+	docker compose pull open-webui
+	docker compose up -d --remove-orphans
 
 start:
-	@echo "[*] Rebuilding seed and open-webui (updating tools/functions + JS)..."
-	docker compose up -d --build --no-deps seed open-webui
-	@echo "[*] Starting remaining services..."
+	@echo "[*] Starting all services..."
 	docker compose up -d --remove-orphans
 
 stop:
@@ -55,6 +60,28 @@ stop:
 	docker compose down --remove-orphans
 
 restart: stop start
+
+# Pull latest pre-built image from GHCR
+pull:
+	@echo "[*] Pulling latest pre-built image from GHCR..."
+	docker compose pull open-webui
+	@echo "[*] Done. Run 'make start' or 'make update' to apply."
+
+# Update: pull latest image + rebuild seed + restart
+update:
+	@echo "[*] Pulling latest image from GHCR..."
+	docker compose pull open-webui
+	@echo "[*] Rebuilding seed..."
+	docker compose up -d --build --no-deps seed
+	@echo "[*] Restarting open-webui with new image..."
+	docker compose up -d --no-deps open-webui
+	@echo "[*] Update complete!"
+
+# Build image locally (slow, for development/testing)
+build-local:
+	@echo "[*] Building open-webui image locally..."
+	docker compose build open-webui
+	@echo "[*] Done. Run 'make start' to launch."
 
 status:
 	@echo "[*] Services status:"
@@ -73,10 +100,6 @@ logs:
 seed:
 	@echo "[*] Rebuilding and restarting seed (updating tools/functions)..."
 	docker compose up -d --build --no-deps seed
-
-update:
-	@echo "[*] Updating seed + open-webui..."
-	docker compose up -d --build --no-deps seed open-webui
 
 test:
 	@echo "[*] Running smoke tests..."
