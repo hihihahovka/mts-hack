@@ -154,10 +154,12 @@ RULES:
 
 INLINE CITATION RULES:
 - After each specific fact, claim, or statistic, add an inline citation
-- Format: [<sup>N</sup>](url) where N is the source number and url is the EXACT URL from the source reference list
-- Place the citation immediately after the relevant sentence or fact (before the period if possible)
-- Multiple sources for one fact: [<sup>1</sup>](url1)[<sup>2</sup>](url2)
-- Example: "Температура выросла на 1.5°C за последние 10 лет[<sup>3</sup>](https://example.com/article)."
+- Use Unicode superscript characters for source numbers: ¹ ² ³ ⁴ ⁵ ⁶ ⁷ ⁸ ⁹ ¹⁰
+- Format: [¹](url) for source 1, [²](url) for source 2, [³](url) for source 3, [⁴](url) for source 4, etc.
+- Place the citation IMMEDIATELY after the relevant word or fact, before the period
+- Multiple sources for one fact: [¹](url1)[²](url2) — no space between them
+- Example: "Температура выросла на 1.5°C за последние 10 лет[³](https://example.com/article)."
+- Do NOT use HTML tags like <sup> — use ONLY Unicode superscript characters
 - Do NOT cite every sentence — only where the fact is specific and traceable to a source
 
 STRICT FORMAT (use ## headers exactly as shown):
