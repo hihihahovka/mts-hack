@@ -658,6 +658,14 @@ async def delete_user_by_id(user_id: str, user=Depends(get_admin_user), db: Sess
         result = Auths.delete_auth_by_id(user_id, db=db)
 
         if result:
+            from open_webui.apps.webui.main import VECTOR_DB_CLIENT
+            try:
+                VECTOR_DB_CLIENT.delete_collection(f'user-memory-{user_id}')
+                import hashlib
+                hashed = hashlib.md5(user_id.encode()).hexdigest()
+                VECTOR_DB_CLIENT.delete_collection(f'local-{hashed}')
+            except Exception as e:
+                log.error(f"Error cleaning up vector db for deleted user {user_id}: {e}")
             return True
 
         raise HTTPException(

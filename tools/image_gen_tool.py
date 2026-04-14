@@ -118,22 +118,48 @@ class Tools:
                     await __event_emitter__(
                         {"type": "status", "data": {"description": "❌ Нет URL изображения в ответе", "done": True}}
                     )
+                return "❌ API вернул пустой URL изображения. Попробуйте ещё раз."
+
+            if __event_emitter__:
+                await __event_emitter__(
+                    {"type": "status", "data": {"description": "⬇️ Загружаю изображение...", "done": False}}
+                )
+
+            # Download the image and convert to base64 data URI.
+            # Without this, OpenWebUI receives a temporary external URL
+            # that may expire or be inaccessible from the user's browser,
+            # resulting in a broken link instead of an inline image.
+            import asyncio
+
+            display_url = None
+            max_retries = 3
+            for attempt in range(1, max_retries + 1):
+                try:
+                    timeout = 30 * attempt  # 30s, 60s, 90s
+                    async with httpx.AsyncClient(timeout=timeout) as client:
+                        img_response = await client.get(image_url)
+                        img_response.raise_for_status()
+                        b64_data = base64.b64encode(img_response.content).decode("utf-8")
+                        content_type = img_response.headers.get("content-type", "image/png")
+                        display_url = f"data:{content_type};base64,{b64_data}"
+                        break  # success
+                except Exception as e:
+                    logger.warning(f"[ImageGen] Download attempt {attempt}/{max_retries} failed: {e}")
+                    if attempt < max_retries:
+                        await asyncio.sleep(2 * attempt)  # backoff: 2s, 4s
+
+            if not display_url:
+                logger.error(f"[ImageGen] All {max_retries} download attempts failed for {image_url}")
+                if __event_emitter__:
+                    await __event_emitter__(
+                        {"type": "status", "data": {"description": "❌ Не удалось загрузить изображение", "done": True}}
+                    )
+                return f"❌ Изображение было сгенерировано, но не удалось его загрузить для отображения. Попробуйте ещё раз."
+
             if __event_emitter__:
                 await __event_emitter__(
                     {"type": "status", "data": {"description": "✅ Изображение сгенерировано!", "done": True}}
                 )
-
-            # Download the image and convert to base64 data URI
-            try:
-                async with httpx.AsyncClient(timeout=30) as client:
-                    img_response = await client.get(image_url)
-                    img_response.raise_for_status()
-                    b64_data = base64.b64encode(img_response.content).decode("utf-8")
-                    content_type = img_response.headers.get("content-type", "image/png")
-                    display_url = f"data:{content_type};base64,{b64_data}"
-            except Exception as e:
-                logger.warning(f"[ImageGen] Could not download image for inline display: {e}")
-                display_url = image_url
 
             # Return markdown image — OpenWebUI will render it inline
             return f"![{revised_prompt}]({display_url})\n\n*Сгенерировано моделью **{self.valves.model}** по запросу: \"{prompt}\"*"

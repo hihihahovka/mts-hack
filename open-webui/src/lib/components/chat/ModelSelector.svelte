@@ -4,6 +4,7 @@
 	import { toast } from 'svelte-sonner';
 	import Selector from './ModelSelector/Selector.svelte';
 	import Tooltip from '../common/Tooltip.svelte';
+	import Dropdown from '../common/Dropdown.svelte';
 
 	import { updateUserSettings } from '$lib/apis/users';
 	const i18n = getContext('i18n');
@@ -70,30 +71,33 @@
 
 			{#if $user?.role === 'admin' || ($user?.permissions?.chat?.multiple_models ?? true)}
 				{#if selectedModelIdx === 0}
-					<div
-						class="  self-center mx-1 disabled:text-gray-600 disabled:hover:text-gray-600 -translate-y-[0.5px]"
-					>
-						<Tooltip content={$i18n.t('Add Model')}>
-							<button
-								class=" "
-								{disabled}
-								on:click={() => {
-									selectedModels = [...selectedModels, ''];
-								}}
-								aria-label="Add Model"
-							>
-								<svg
-									xmlns="http://www.w3.org/2000/svg"
-									fill="none"
-									viewBox="0 0 24 24"
-									stroke-width="2"
-									stroke="currentColor"
-									class="size-3.5"
+					<div class="self-center mx-1 flex items-center gap-1">
+						<div
+							class="disabled:text-gray-600 disabled:hover:text-gray-600 -translate-y-[0.5px]"
+						>
+							<Tooltip content={$i18n.t('Add Model')}>
+								<button
+									class=" "
+									{disabled}
+									on:click={() => {
+										selectedModels = [...selectedModels, ''];
+									}}
+									aria-label="Add Model"
 								>
-									<path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m6-6H6" />
-								</svg>
-							</button>
-						</Tooltip>
+									<svg
+										xmlns="http://www.w3.org/2000/svg"
+										fill="none"
+										viewBox="0 0 24 24"
+										stroke-width="2"
+										stroke="currentColor"
+										class="size-3.5"
+									>
+										<path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m6-6H6" />
+									</svg>
+								</button>
+							</Tooltip>
+						</div>
+						<slot name="actions" />
 					</div>
 				{:else}
 					<div

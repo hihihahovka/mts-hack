@@ -27,6 +27,7 @@ services:
       - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY:-supersecretkey123}
       - WEBUI_AUTH=${WEBUI_AUTH:-true}
       - ENABLE_SIGNUP=true
+      - AIOHTTP_CLIENT_TIMEOUT=600
       - DATABASE_URL=postgresql://${POSTGRES_USER:-openwebui}:${POSTGRES_PASSWORD:-openwebui_secret}@postgres:5432/${POSTGRES_DB:-openwebui}
     volumes:
       - open-webui-data:/app/backend/data
@@ -34,9 +35,9 @@ services:
       postgres:
         condition: service_healthy
       searxng:
-        condition: service_started
+        condition: service_healthy
       whisper-api:
-        condition: service_started
+        condition: service_started  # не healthy — модель грузится ~1-2 мин при первом запуске
     networks:
       - mts-net
     restart: unless-stopped
@@ -100,6 +101,12 @@ services:
         limits:
           cpus: '0.5'
           memory: 512M
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8080/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   # ============================================================
   # Whisper API
@@ -119,6 +126,12 @@ services:
         limits:
           cpus: '2.0'
           memory: 4G
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:9000/health')\" || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 120s
 
   # ============================================================
   # Seed Service
@@ -131,6 +144,7 @@ services:
     environment:
       - OPENWEBUI_URL=http://open-webui:8080
       - WEBUI_AUTH=${WEBUI_AUTH:-true}
+      - MWS_API_KEY=${MWS_API_KEY}
     depends_on:
       open-webui:
         condition: service_healthy

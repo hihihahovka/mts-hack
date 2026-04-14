@@ -233,126 +233,292 @@
   color: var(--theme-color);
 }
 
-/* Chat message user bubble accent border */
-:root[data-theme] .user-message {
-  border-left: 3px solid var(--theme-color) !important;
+
+/* ============================================================
+   Central chat area — neutral dark in dark mode
+   ============================================================
+   Custom themes tint --color-gray-* globally, which makes the
+   sidebar look great but also tints the main chat area.
+   We force the central content wrapper to neutral-dark so only
+   the sidebar keeps the accent.
+   ============================================================ */
+
+/* Main app outer wrapper — neutral dark bg */
+:root.dark[data-theme] .app > div {
+  background-color: #171717 !important;
+}
+
+/* Scrollbar track should also stay neutral in the main area */
+:root.dark[data-theme] .app > div::-webkit-scrollbar-track {
+  background-color: #171717;
 }
 
 
 /* ============================================================
-   Theme Selector Widget (injected via CSS + JS)
+   Appearance Panel  (replaces old floating palette widget)
    ============================================================
-   Floating button in bottom-left corner that opens a dropdown
-   with all 7 custom themes + Reset option.
-   Persists selection in localStorage.
+   Slide-over panel opened from the profile dropdown menu.
+   Contains Theme mode (Light / Dark / System) and Colour accent
+   selectors.
    ============================================================ */
 
-/* --- Widget Container --- */
-#mts-theme-selector {
+/* --- Overlay backdrop --- */
+#mts-appearance-overlay {
   position: fixed;
-  bottom: 20px;
-  left: 20px;
-  z-index: 99999;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  inset: 0;
+  z-index: 99998;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.3s ease, visibility 0.3s ease;
+}
+#mts-appearance-overlay.open {
+  opacity: 1;
+  visibility: visible;
 }
 
-/* --- Toggle Button --- */
-#mts-theme-toggle {
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  border: 2px solid rgba(255, 255, 255, 0.15);
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+/* --- Panel container --- */
+#mts-appearance-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 360px;
+  max-width: 90vw;
+  height: 100vh;
+  z-index: 99999;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  background: rgba(24, 24, 32, 0.97);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: -8px 0 40px rgba(0, 0, 0, 0.5);
+  transform: translateX(100%);
+  transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+#mts-appearance-panel.open {
+  transform: translateX(0);
+}
+
+/* Light mode variant */
+:root:not(.dark) #mts-appearance-panel {
+  background: rgba(255, 255, 255, 0.97);
+  border-left: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: -8px 0 40px rgba(0, 0, 0, 0.12);
+}
+:root:not(.dark) #mts-appearance-overlay {
+  background: rgba(0, 0, 0, 0.25);
+}
+
+/* --- Panel header --- */
+#mts-appearance-panel .panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+:root:not(.dark) #mts-appearance-panel .panel-header {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+#mts-appearance-panel .panel-header h2 {
+  font-size: 18px;
+  font-weight: 700;
   color: #fff;
-  font-size: 20px;
+  margin: 0;
+  letter-spacing: -0.3px;
+}
+:root:not(.dark) #mts-appearance-panel .panel-header h2 {
+  color: #111;
+}
+
+#mts-appearance-panel .panel-close {
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.6);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  padding: 0;
-  line-height: 1;
+  transition: all 0.2s ease;
 }
-#mts-theme-toggle:hover {
-  transform: scale(1.1) rotate(15deg);
-  box-shadow: 0 6px 25px rgba(102, 126, 234, 0.4);
+#mts-appearance-panel .panel-close:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
 }
-
-/* --- Dropdown Menu --- */
-#mts-theme-menu {
-  position: absolute;
-  bottom: 54px;
-  left: 0;
-  background: rgba(30, 30, 40, 0.95);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 14px;
-  padding: 8px;
-  min-width: 180px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
-  opacity: 0;
-  visibility: hidden;
-  transform: translateY(10px) scale(0.95);
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+:root:not(.dark) #mts-appearance-panel .panel-close {
+  background: rgba(0, 0, 0, 0.05);
+  color: rgba(0, 0, 0, 0.5);
 }
-#mts-theme-menu.open {
-  opacity: 1;
-  visibility: visible;
-  transform: translateY(0) scale(1);
+:root:not(.dark) #mts-appearance-panel .panel-close:hover {
+  background: rgba(0, 0, 0, 0.1);
+  color: #111;
 }
 
-/* --- Menu Header --- */
-#mts-theme-menu .menu-header {
-  padding: 6px 10px 8px;
-  font-size: 10px;
+/* --- Section --- */
+#mts-appearance-panel .panel-section {
+  padding: 20px 24px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+:root:not(.dark) #mts-appearance-panel .panel-section {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+#mts-appearance-panel .section-label {
+  font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 1.5px;
   color: rgba(255, 255, 255, 0.4);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  margin-bottom: 4px;
+  margin-bottom: 14px;
+}
+:root:not(.dark) #mts-appearance-panel .section-label {
+  color: rgba(0, 0, 0, 0.4);
 }
 
-/* --- Theme Option Button --- */
-#mts-theme-menu button.theme-option {
+/* --- Mode selector --- */
+#mts-appearance-panel .mode-group {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+#mts-appearance-panel .mode-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 14px 8px;
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+#mts-appearance-panel .mode-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #fff;
+}
+#mts-appearance-panel .mode-btn.active {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: var(--theme-color, #6366f1);
+  color: #fff;
+  box-shadow: 0 0 0 1px var(--theme-color, #6366f1);
+}
+
+:root:not(.dark) #mts-appearance-panel .mode-btn {
+  border-color: rgba(0, 0, 0, 0.1);
+  background: rgba(0, 0, 0, 0.02);
+  color: rgba(0, 0, 0, 0.6);
+}
+:root:not(.dark) #mts-appearance-panel .mode-btn:hover {
+  background: rgba(0, 0, 0, 0.05);
+  border-color: rgba(0, 0, 0, 0.2);
+  color: #111;
+}
+:root:not(.dark) #mts-appearance-panel .mode-btn.active {
+  background: rgba(0, 0, 0, 0.06);
+  border-color: var(--theme-color, #6366f1);
+  color: #111;
+}
+
+#mts-appearance-panel .mode-icon {
+  font-size: 22px;
+  line-height: 1;
+}
+
+/* --- Accent grid --- */
+#mts-appearance-panel .accent-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+#mts-appearance-panel .accent-btn {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   width: 100%;
-  padding: 8px 10px;
-  border: none;
-  border-radius: 8px;
+  padding: 10px 12px;
+  border: 2px solid transparent;
+  border-radius: 12px;
   background: transparent;
-  color: rgba(255, 255, 255, 0.85);
+  color: rgba(255, 255, 255, 0.8);
   font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all 0.2s ease;
   text-align: left;
+  position: relative;
 }
-#mts-theme-menu button.theme-option:hover {
-  background: rgba(255, 255, 255, 0.1);
+#mts-appearance-panel .accent-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
   color: #fff;
 }
-#mts-theme-menu button.theme-option.active {
-  background: rgba(255, 255, 255, 0.12);
-  color: #fff;
-  font-weight: 600;
-}
-
-/* --- Color Swatch --- */
-#mts-theme-menu .swatch {
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  border: 2px solid rgba(255, 255, 255, 0.2);
-  flex-shrink: 0;
-}
-
-/* --- Divider --- */
-#mts-theme-menu .divider {
-  height: 1px;
+#mts-appearance-panel .accent-btn.active {
   background: rgba(255, 255, 255, 0.08);
-  margin: 4px 0;
+  border-color: rgba(255, 255, 255, 0.15);
+  color: #fff;
+}
+
+:root:not(.dark) #mts-appearance-panel .accent-btn {
+  color: rgba(0, 0, 0, 0.7);
+}
+:root:not(.dark) #mts-appearance-panel .accent-btn:hover {
+  background: rgba(0, 0, 0, 0.04);
+  color: #111;
+}
+:root:not(.dark) #mts-appearance-panel .accent-btn.active {
+  background: rgba(0, 0, 0, 0.06);
+  border-color: rgba(0, 0, 0, 0.12);
+  color: #111;
+}
+
+/* Swatch circle */
+#mts-appearance-panel .accent-swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.18);
+  flex-shrink: 0;
+  transition: transform 0.2s ease;
+}
+:root:not(.dark) #mts-appearance-panel .accent-swatch {
+  border-color: rgba(0, 0, 0, 0.12);
+}
+#mts-appearance-panel .accent-btn:hover .accent-swatch {
+  transform: scale(1.12);
+}
+
+/* Label text */
+#mts-appearance-panel .accent-label {
+  flex: 1;
+}
+
+/* Checkmark — hidden by default */
+#mts-appearance-panel .accent-check {
+  display: none;
+  color: var(--theme-color, #6366f1);
+  font-size: 16px;
+  font-weight: 700;
+}
+#mts-appearance-panel .accent-btn.active .accent-check {
+  display: block;
+}
+
+/* --- Injected menu item in the profile dropdown --- */
+#mts-appearance-menu-item {
+  transition: background 0.15s ease;
 }

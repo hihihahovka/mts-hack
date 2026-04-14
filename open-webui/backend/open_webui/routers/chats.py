@@ -8,6 +8,8 @@ from fastapi.responses import StreamingResponse
 
 from open_webui.utils.misc import get_message_list
 from open_webui.socket.main import get_event_emitter
+from open_webui.models.memories import Memories
+from open_webui.retrieval.vector.factory import VECTOR_DB_CLIENT
 from open_webui.models.chats import (
     ChatForm,
     ChatImportForm,
@@ -498,6 +500,11 @@ async def delete_all_user_chats(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
         )
+
+    # Fetch all chats first to cascade delete their local memories
+    user_chats = Chats.get_chat_lists_by_user_id(user.id, db=db, skip=0, limit=100000)
+    for chat in user_chats:
+        cascade_delete_local_memories(chat.id, user.id, db=db)
 
     result = Chats.delete_chats_by_user_id(user.id, db=db)
     return result
@@ -1011,6 +1018,22 @@ async def send_chat_message_event_by_id(
 ############################
 
 
+def cascade_delete_local_memories(chat_id: str, user_id: str, db: Session):
+    local_memories = Memories.get_local_memories_by_chat_id(chat_id, db=db)
+    if local_memories:
+        memory_ids = [m.id for m in local_memories]
+        for m_id in memory_ids:
+            Memories.delete_memory_by_id(m_id, db=db)
+        try:
+            import hashlib
+            hashed = hashlib.md5(user_id.encode()).hexdigest()
+            collection_name = f"local-{hashed}"
+            VECTOR_DB_CLIENT.delete(collection_name=collection_name, ids=memory_ids)
+            log.debug(f'Deleted {len(memory_ids)} local memories for chat {chat_id}')
+        except Exception as e:
+            log.error(f'Error cascading vector db deletion for chat {chat_id}: {e}')
+
+
 @router.delete('/{id}', response_model=bool)
 async def delete_chat_by_id(
     request: Request,
@@ -1026,6 +1049,7 @@ async def delete_chat_by_id(
                 detail=ERROR_MESSAGES.NOT_FOUND,
             )
         Chats.delete_orphan_tags_for_user(chat.meta.get('tags', []), user.id, threshold=1, db=db)
+        cascade_delete_local_memories(id, user.id, db=db)
 
         result = Chats.delete_chat_by_id(id, db=db)
 
@@ -1044,6 +1068,7 @@ async def delete_chat_by_id(
                 detail=ERROR_MESSAGES.NOT_FOUND,
             )
         Chats.delete_orphan_tags_for_user(chat.meta.get('tags', []), user.id, threshold=1, db=db)
+        cascade_delete_local_memories(id, user.id, db=db)
 
         result = Chats.delete_chat_by_id_and_user_id(id, user.id, db=db)
         return result

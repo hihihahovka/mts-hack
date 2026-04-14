@@ -15,6 +15,8 @@ Usage:
 
 import os
 import logging
+import asyncio
+import base64
 import httpx
 from typing import Union, Generator, Iterator
 from pydantic import BaseModel, Field
@@ -70,6 +72,23 @@ class Pipe:
         Handle incoming chat request by generating an image.
         Extracts the last user message as the prompt and calls the image API.
         """
+        # Skip background tasks — OpenWebUI sends title_generation, tags_generation,
+        # emoji_generation, etc. to the same model. Without this check, each task
+        # would trigger a separate image generation API call.
+        # We return sensible defaults so OpenWebUI can parse them properly.
+        task = body.get("metadata", {}).get("task", "")
+        if task == "title_generation":
+            return "Генерация изображения 🖼️"
+        elif task == "tags_generation":
+            return "image"
+        elif task == "emoji_generation":
+            return "🖼️"
+        elif task in {
+            "follow_up_generation", "query_generation",
+            "autocomplete_generation", "image_prompt_generation",
+            "moa_response_generation", "function_calling",
+        }:
+            return ""
         # Determine which model was selected
         model_id = body.get("model", "")
         # OpenWebUI prefixes pipe model IDs with the function id
@@ -167,10 +186,45 @@ class Pipe:
             if __event_emitter__:
                 await __event_emitter__({
                     "type": "status",
+                    "data": {"description": "⬇️ Загружаю изображение...", "done": False}
+                })
+
+            # Download the image and convert to base64 data URI.
+            # MWS API returns temporary URLs that expire quickly —
+            # without this conversion, images appear as broken links.
+            display_url = None
+            max_retries = 3
+            for attempt in range(1, max_retries + 1):
+                try:
+                    timeout = 30 * attempt  # 30s, 60s, 90s
+                    async with httpx.AsyncClient(timeout=timeout) as dl_client:
+                        img_response = await dl_client.get(image_url)
+                        img_response.raise_for_status()
+                        b64_data = base64.b64encode(img_response.content).decode("utf-8")
+                        content_type = img_response.headers.get("content-type", "image/png")
+                        display_url = f"data:{content_type};base64,{b64_data}"
+                        break
+                except Exception as e:
+                    logger.warning(f"[ImagePipe] Download attempt {attempt}/{max_retries} failed: {e}")
+                    if attempt < max_retries:
+                        await asyncio.sleep(2 * attempt)
+
+            if not display_url:
+                logger.error(f"[ImagePipe] All {max_retries} download attempts failed for {image_url}")
+                if __event_emitter__:
+                    await __event_emitter__({
+                        "type": "status",
+                        "data": {"description": "❌ Не удалось загрузить изображение", "done": True}
+                    })
+                return "❌ Изображение было сгенерировано, но не удалось загрузить для отображения. Попробуйте ещё раз."
+
+            if __event_emitter__:
+                await __event_emitter__({
+                    "type": "status",
                     "data": {"description": "✅ Изображение сгенерировано!", "done": True}
                 })
 
-            return f"![{revised_prompt}]({image_url})\n\n*Модель: **{model_id}** | Запрос: \"{prompt}\"*"
+            return f"![{revised_prompt}]({display_url})\n\n*Модель: **{model_id}** | Запрос: \"{prompt}\"*"
 
         except httpx.TimeoutException:
             logger.error("[ImagePipe] Request timed out")

@@ -18,6 +18,8 @@ from open_webui.models.folders import (
 from open_webui.models.chats import Chats
 from open_webui.models.files import Files
 from open_webui.models.knowledge import Knowledges
+from open_webui.models.memories import Memories
+from open_webui.retrieval.vector.factory import VECTOR_DB_CLIENT
 
 
 from open_webui.config import UPLOAD_DIR
@@ -270,6 +272,20 @@ async def update_folder_is_expanded_by_id(
 # Delete Folder By Id
 ############################
 
+def cascade_delete_folder_memories(folder_id: str, user_id: str, db: Session):
+    folder_memories = Memories.get_folder_memories_by_folder_id(folder_id, db=db)
+    if folder_memories:
+        memory_ids = [m.id for m in folder_memories]
+        for m_id in memory_ids:
+            Memories.delete_memory_by_id(m_id, db=db)
+        log.debug(f'Deleted {len(memory_ids)} project memories for folder {folder_id} from Postgres')
+        
+    try:
+        VECTOR_DB_CLIENT.delete_collection(collection_name=f'folder-{folder_id}')
+        log.debug(f'Deleted legacy Vector DB collection folder-{folder_id}')
+    except Exception:
+        pass
+
 
 @router.delete('/{id}')
 async def delete_folder_by_id(
@@ -295,6 +311,7 @@ async def delete_folder_by_id(
         folder = folders.pop()
         if folder:
             try:
+                cascade_delete_folder_memories(folder.id, user.id, db=db)
                 folder_ids = Folders.delete_folder_by_id_and_user_id(folder.id, user.id, db=db)
 
                 for folder_id in folder_ids:
