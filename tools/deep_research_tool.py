@@ -154,10 +154,11 @@ RULES:
 
 INLINE CITATION RULES:
 - After each specific fact, claim, or statistic, add an inline citation
-- Format: [N](url) where N is the source number and url is the EXACT URL from the source reference list
-- Place the citation immediately after the relevant sentence or fact
-- Multiple sources for one fact: [1](url1) [2](url2)
-- Example: "Температура выросла на 1.5°C за последние 10 лет [3](https://example.com/article)."
+- Format: [(N)](url) where N is the source number and url is the EXACT URL from the source reference list
+- Place the citation immediately after the relevant word or fact, before the period
+- Multiple sources for one fact: [(1)](url1)[(2)](url2) — no space between them
+- Example: "Температура выросла на 1.5°C за последние 10 лет[(3)](https://example.com/article)."
+- Do NOT use HTML tags or Unicode characters — use ONLY the plain [(N)](url) format
 - Do NOT cite every sentence — only where the fact is specific and traceable to a source
 
 STRICT FORMAT (use ## headers exactly as shown):
@@ -1203,6 +1204,78 @@ class Tools:
             m_sources = sources_header_re.search(final_report)
             if m_sources:
                 final_report = final_report[:m_sources.start()].rstrip()
+
+            # --- Post-processing: конвертируем URL-цитаты в кликабельные pill-сноски ---
+            def _find_title(url: str) -> str:
+                """Ищет заголовок по URL: точное совпадение → fuzzy по netloc → домен."""
+                # 1) Точное совпадение
+                title = url_to_title.get(url, "")
+                if title:
+                    return title
+
+                # 2) Fuzzy: ищем по совпадению netloc + начала пути
+                try:
+                    p = urlparse(url)
+                    target_netloc = p.netloc.lower()
+                    target_path = p.path.rstrip("/").lower()
+                    for stored_url, stored_title in url_to_title.items():
+                        sp = urlparse(stored_url)
+                        if sp.netloc.lower() == target_netloc:
+                            sp_path = sp.path.rstrip("/").lower()
+                            # Считаем совпадением если пути совпадают или один начинается с другого
+                            if sp_path == target_path or sp_path.startswith(target_path) or target_path.startswith(sp_path):
+                                return stored_title
+                except Exception:
+                    pass
+
+                return ""
+
+            def _make_footnote(url: str, url_to_fn: dict) -> str:
+                """Возвращает pill-ссылку [(N) Label](url) с заголовком или доменом."""
+                if url not in url_to_fn:
+                    url_to_fn[url] = len(url_to_fn) + 1
+                n = url_to_fn[url]
+
+                raw_title = _find_title(url)
+                if raw_title:
+                    # Убираем мусор типа [PDF], [D] и берём первые 4 слова
+                    clean = re.sub(r'\[.*?\]\s*', '', raw_title).strip()
+                    words = clean.split()[:4]
+                    label = " ".join(words)
+                    if len(label) > 30:
+                        label = label[:30].rstrip()
+                else:
+                    # Fallback — домен без www
+                    try:
+                        label = urlparse(url).netloc.replace("www.", "")
+                    except Exception:
+                        label = url[:25]
+
+                return f"[({n}) {label}]({url})"
+
+            url_to_fn: dict = {}
+
+            # 1) Паттерн: (https://...) — LLM вставил голый URL в скобках
+            def _replace_paren_url(m: re.Match) -> str:
+                url = m.group(1).rstrip(".,;:!?)")
+                return _make_footnote(url, url_to_fn)
+
+            final_report = re.sub(
+                r'\((https?://[^\s\)]{10,})\)',
+                _replace_paren_url,
+                final_report,
+            )
+
+            # 2) Паттерн: [N](url), [¹](url), [(N)](url) — уже markdown-ссылки, нормализуем в (N)
+            def _replace_md_citation(m: re.Match) -> str:
+                url = m.group(2).rstrip(".,;:!?")
+                return _make_footnote(url, url_to_fn)
+
+            final_report = re.sub(
+                r'\[(?:[⁰¹²³⁴⁵⁶⁷⁸⁹]+|\(?\d+\)?)\]\((https?://[^\)]{10,})\)',
+                _replace_md_citation,
+                final_report,
+            )
 
             # Если инлайн-цитирование активно — источники уже вшиты в текст,
             # список в конце не нужен. Иначе (монолитный путь) — выводим список.
