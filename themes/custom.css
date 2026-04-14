@@ -613,3 +613,55 @@ img[src*="splash"] {
 
 /* 6. Поле ввода в фокусе — стандартный стиль (красный outline отключён) */
 /* :root[data-theme^="mts"] div[contenteditable]:focus { ... } */
+
+/* ============================================================
+   Аватары моделей — квадратные (убираем rounded-full)
+   ============================================================ */
+
+/* Аватары в списке выбора модели и в чате */
+img[src*="favicon"].rounded-full,
+img[src*="favicon"][class*="rounded"],
+.rounded-full img[src*="favicon"],
+/* Все аватары модели в сообщениях чата */
+div[class*="message"] img.rounded-full,
+div[class*="chat"] img.rounded-full,
+/* Аватар рядом с именем модели в шапке сообщения */
+img.rounded-full[src*="favicon"],
+img[style*="border-radius"][src*="favicon"] {
+  border-radius: 0 !important;
+  aspect-ratio: 1 / 1 !important;
+  object-fit: contain !important;
+}
+
+/* Обёртки-контейнеры аватаров — тоже без скруглений */
+div.rounded-full:has(> img[src*="favicon"]),
+span.rounded-full:has(> img[src*="favicon"]) {
+  border-radius: 0 !important;
+}
+
+/* ============================================================
+   Кнопка остановки генерации — красный МТС
+   ============================================================ */
+:root[data-theme^="mts"] button[aria-label="Stop"],
+:root[data-theme^="mts"] button[aria-label="Стоп"],
+:root[data-theme^="mts"] button[aria-label="Stop Response"],
+:root[data-theme^="mts"] button[aria-label="Stop Generation"] {
+  background-color: var(--mts-red) !important;
+  border-color: var(--mts-red) !important;
+  color: #fff !important;
+  transition: background-color 0.2s ease, box-shadow 0.2s ease !important;
+}
+:root[data-theme^="mts"] button[aria-label="Stop"]:hover,
+:root[data-theme^="mts"] button[aria-label="Стоп"]:hover,
+:root[data-theme^="mts"] button[aria-label="Stop Response"]:hover,
+:root[data-theme^="mts"] button[aria-label="Stop Generation"]:hover {
+  background-color: var(--mts-red-dark) !important;
+  box-shadow: 0 0 0 4px rgba(255, 0, 50, 0.25) !important;
+}
+/* Иконка внутри кнопки — белая */
+:root[data-theme^="mts"] button[aria-label="Stop"] svg,
+:root[data-theme^="mts"] button[aria-label="Stop Response"] svg,
+:root[data-theme^="mts"] button[aria-label="Stop Generation"] svg {
+  fill: #fff !important;
+  color: #fff !important;
+}
