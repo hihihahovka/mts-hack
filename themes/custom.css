@@ -680,3 +680,19 @@ button.rounded-full:has(> img) {
   fill: #fff !important;
   color: #fff !important;
 }
+
+/* ============================================================
+   Отступ после блока рассуждений (thinking/reasoning)
+   ============================================================ */
+
+/* Пустая строка после коллапсибл-блока рассуждений */
+details {
+  margin-bottom: 1.25rem !important;
+}
+
+/* На случай если блок рендерится не через <details> а через div */
+[class*="thinking"],
+[class*="reasoning"],
+[class*="thought"] {
+  margin-bottom: 1.25rem !important;
+}
