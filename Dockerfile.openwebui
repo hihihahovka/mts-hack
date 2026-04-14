@@ -1,31 +1,8 @@
-# Stage 1: Build the frontend cleanly from source
-FROM --platform=$BUILDPLATFORM node:22-alpine3.20 AS build
-ENV NODE_OPTIONS="--max-old-space-size=4096"
-WORKDIR /app
-# We only copy the package files first for caching
-COPY open-webui/package.json open-webui/package-lock.json ./
-RUN npm ci --force
-
-# We explicitly pre-fetch Pyodide so Docker caches these hundreds of megabytes
-RUN mkdir -p static/pyodide
-COPY open-webui/scripts/ ./scripts/
-RUN npm run pyodide:fetch
-
-# Copy the rest of the frontend src (including our UI changes)
-COPY open-webui .
-
-# Run native Vite build, bypassing the redundant pyodide:fetch in package.json
-RUN npx vite build
-
-# Stage 2: Inject it into the vanilla OpenWebUI Python backend
+# Базируемся на готовом образе OpenWebUI — без пересборки frontend
 FROM ghcr.io/open-webui/open-webui:main
 
 # Fix upstream bug: uncomment `db = None` to prevent UnboundLocalError in db.py
 RUN sed -i 's/# db = None/db = None/' /app/backend/open_webui/internal/db.py
-
-# Replace frontend with our fully custom-built version cleanly
-RUN rm -rf /app/build/*
-COPY --from=build /app/build /app/build
 
 # Копируем кастомную тему (будет доступна по /static/custom.css)
 COPY themes/custom.css /app/build/static/custom.css
@@ -46,4 +23,5 @@ COPY themes/model-tags.js /app/build/static/model-tags.js
 COPY themes/citation-pills.js /app/build/static/citation-pills.js
 
 # Инжектим скрипты МТС в <head> HTML
-RUN sed -i 's|</head>|<script>var t=localStorage.getItem("mts-theme")||"mts-dark";document.documentElement.setAttribute("data-theme",t);</script><link rel="stylesheet" href="/static/custom.css"><script defer src="/static/theme-selector.js"></script><script defer src="/static/autorouting-selector.js"></script><script src="/static/model-tags.js"></script><script defer src="/static/citation-pills.js"></script></head>|' /app/build/index.html
+# NOTE: use '#' as sed delimiter because JS contains '||' which breaks '|' delimiter
+RUN sed -i 's#</head>#<script>var t=localStorage.getItem("mts-theme")||"mts-dark";document.documentElement.setAttribute("data-theme",t);</script><link rel="stylesheet" href="/static/custom.css"><script defer src="/static/theme-selector.js"></script><script defer src="/static/autorouting-selector.js"></script><script src="/static/model-tags.js"></script><script defer src="/static/citation-pills.js"></script></head>#' /app/build/index.html

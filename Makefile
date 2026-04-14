@@ -1,73 +1,92 @@
 .PHONY: help install start stop restart logs wipe status seed update test
 
-# Настройки по умолчанию
+# Cross-platform commands
+ifeq ($(OS),Windows_NT)
+    COPY_CMD = copy
+    TOUCH_CMD = type nul >
+else
+    COPY_CMD = cp
+    TOUCH_CMD = touch
+endif
+
+# Default target
 .DEFAULT_GOAL := help
 
 help:
-	@echo "MTS AI Workspace — Управление проектом"
+	@echo "MTS AI Workspace — Project Management"
 	@echo ""
-	@echo "Доступные команды:"
-	@echo "  make install  - Первоначальная настройка (проверяет .env) и запуск проекта"
-	@echo "  make start    - Запустить все сервисы в фоновом режиме"
-	@echo "  make stop     - Безопасно остановить все сервисы"
-	@echo "  make restart  - Перезапустить сервисы"
-	@echo "  make status   - Проверить состояние всех контейнеров"
-	@echo "  make logs     - Посмотреть логи в реальном времени"
-	@echo "  make seed     - Пересобрать и перезапустить seed (обновить tools/functions)"
-	@echo "  make update   - Обновить код (seed + open-webui) без пересборки остальных"
-	@echo "  make test     - 🧪 Запустить smoke-тесты (проверить все компоненты)"
-	@echo "  make wipe     - ⚠️ ВНИМАНИЕ: Удалить все контейнеры и очистить все базы данных (Volumes)"
+	@echo "Available commands:"
+	@echo "  make install  - Initial setup (checks .env) and start the project"
+	@echo "  make start    - Start all services in the background"
+	@echo "  make stop     - Gracefully stop all services"
+	@echo "  make restart  - Restart services"
+	@echo "  make status   - Check the status of all containers"
+	@echo "  make logs     - View logs in real time"
+	@echo "  make seed     - Rebuild and restart seed (update tools/functions)"
+	@echo "  make update   - Update code (seed + open-webui) without rebuilding the rest"
+	@echo "  make test     - Run smoke tests (check all components)"
+	@echo "  make wipe     - WARNING: Remove all containers and clear all databases (Volumes)"
 
+# Check .env at make-parse time using $(wildcard), no shell needed
 install:
-	@if [ ! -f .env ]; then \
-		if [ -f .env.example ]; then \
-			echo "[*] Создаю .env из .env.example..."; \
-			cp .env.example .env; \
-			echo "[!] ВАЖНО: Откройте .env и заполните MWS_API_KEY!"; \
-		else \
-			echo "[!] Внимание: отсутствует файл .env.example. Создаю пустой .env..."; \
-			touch .env; \
-		fi \
-	else \
-		echo "[*] Файл .env уже существует. Пропускаю..."; \
-	fi
-	@echo "[*] Запускаю сборку и старт сервисов..."
+ifeq ($(wildcard .env),)
+ifeq ($(wildcard .env.example),)
+	@echo "[!] Warning: .env.example not found. Creating empty .env..."
+	@$(TOUCH_CMD) .env
+else
+	@echo "[*] Creating .env from .env.example..."
+	@$(COPY_CMD) .env.example .env
+	@echo "[!] IMPORTANT: Open .env and fill in MWS_API_KEY!"
+endif
+else
+	@echo "[*] .env file already exists. Skipping..."
+endif
+	@echo "[*] Building and starting services..."
 	docker compose up -d --build --remove-orphans
 
 start:
-	@echo "[*] Запуск сервисов..."
+	@echo "[*] Rebuilding seed and open-webui (updating tools/functions + JS)..."
+	docker compose up -d --build --no-deps seed open-webui
+	@echo "[*] Starting remaining services..."
 	docker compose up -d --remove-orphans
 
 stop:
-	@echo "[*] Остановка сервисов..."
+	@echo "[*] Stopping services..."
 	docker compose down --remove-orphans
 
 restart: stop start
 
 status:
-	@echo "[*] Статус сервисов:"
+	@echo "[*] Services status:"
 	@docker compose ps
 	@echo ""
-	@echo "[*] Использование ресурсов:"
+	@echo "[*] Resource usage:"
+ifeq ($(OS),Windows_NT)
+	@docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}" 2>NUL || ver >NUL
+else
 	@docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}" 2>/dev/null || true
+endif
 
 logs:
 	docker compose logs -f
 
 seed:
-	@echo "[*] Пересборка и перезапуск seed (обновление tools/functions)..."
+	@echo "[*] Rebuilding and restarting seed (updating tools/functions)..."
 	docker compose up -d --build --no-deps seed
 
 update:
-	@echo "[*] Обновление seed + open-webui..."
+	@echo "[*] Updating seed + open-webui..."
 	docker compose up -d --build --no-deps seed open-webui
 
 test:
-	@echo "[*] Запуск smoke-тестов..."
+	@echo "[*] Running smoke tests..."
+ifeq ($(OS),Windows_NT)
+	python scripts/smoke_test.py
+else
 	python3 scripts/smoke_test.py
+endif
 
 wipe:
-	@echo "[!] Удаляю все сервисы и сохраненную базу данных..."
+	@echo "[!] Removing all services and stored databases..."
 	docker compose down -v --remove-orphans
-	@echo "[*] Готово. Окружение полностью сброшено до нуля."
-
+	@echo "[*] Done. Environment has been fully reset."

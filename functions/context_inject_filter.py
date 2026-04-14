@@ -153,7 +153,77 @@ class Filter:
 
         return []
 
+    async def _search_project_memories_vector(self, user_id: str, query_text: str, request,
+                                                limit: int = 5, folder_id: str = None) -> list:
+        """
+        Semantic search for [PROJECT] memories via Vector DB.
+        Scoped to folder if folder_id provided.
+        Returns list of document strings, or empty list on failure.
+        """
+        try:
+            from open_webui.retrieval.vector.factory import VECTOR_DB_CLIENT
 
+            embedding_function = request.app.state.EMBEDDING_FUNCTION
+            if not embedding_function:
+                logger.warning("[ContextInject] EMBEDDING_FUNCTION not configured")
+                return []
+
+            vector = await embedding_function(query_text)
+            if not vector:
+                return []
+
+            search_vector = [vector] if not isinstance(vector[0], list) else vector
+
+            if folder_id:
+                collection_name = self._safe_collection_name("folder", user_id, folder_id)
+            else:
+                collection_name = f"user-memory-{user_id}"
+
+            if not VECTOR_DB_CLIENT.has_collection(collection_name):
+                logger.info(f"[ContextInject] No vector collection '{collection_name}', skipping")
+                return []
+
+            results = VECTOR_DB_CLIENT.search(
+                collection_name=collection_name,
+                vectors=search_vector,
+                limit=limit,
+            )
+
+            if not results or not results.documents:
+                return []
+
+            # Collect documents with timestamps for chronological sorting
+            retrieved_items = []
+            for i, doc_list in enumerate(results.documents):
+                meta_list = results.metadatas[i] if results.metadatas and i < len(results.metadatas) else []
+                for j, doc in enumerate(doc_list):
+                    base_cat = self._get_base_category(doc) if doc else ""
+                    if doc and base_cat == "[PROJECT]":
+                        meta = meta_list[j] if j < len(meta_list) and isinstance(meta_list[j], dict) else {}
+                        created_at = meta.get("created_at", 0)
+                        retrieved_items.append({
+                            "content": self._strip_tag(doc),
+                            "timestamp": created_at
+                        })
+
+            # Sort chronologically (oldest → newest)
+            retrieved_items.sort(key=lambda x: x["timestamp"])
+
+            # Format with human-readable dates
+            docs = []
+            for item in retrieved_items:
+                if item["timestamp"] > 0:
+                    date_str = datetime.datetime.fromtimestamp(item["timestamp"]).strftime('%Y-%m-%d')
+                    docs.append(f"[{date_str}] {item['content']}")
+                else:
+                    docs.append(item["content"])
+
+            logger.info(f"[ContextInject] Vector search returned {len(docs)} [PROJECT] memories")
+            return docs
+
+        except Exception as e:
+            logger.warning(f"[ContextInject] Vector search failed (falling back to SQL): {type(e).__name__}: {e}")
+            return []
 
     async def _search_local_memories_vector(self, user_id: str, chat_id: str, query_text: str, request,
                                              limit: int = 10) -> list:
@@ -373,11 +443,32 @@ class Filter:
             elif base_cat == "[PROJECT]":
                 project_facts_sql.append(stripped)
 
-        # 3. Get [PROJECT] facts (Chronological SQL Only)
+        # 3. Get [PROJECT] facts — try Vector DB semantic search first, else SQL fallback
         project_facts = []
-        if project_facts_sql:
+        vector_search_succeeded = False
+
+        if (project_facts_sql or self.valves.enable_global_memory) and __request__:
+            # Find latest user message for semantic query
+            latest_user_msg = ""
+            for m in reversed(messages):
+                if m.get("role") == "user" and isinstance(m.get("content"), str):
+                    latest_user_msg = m["content"]
+                    break
+
+            if latest_user_msg:
+                vector_results = await self._search_project_memories_vector(
+                    user_id, latest_user_msg, __request__,
+                    limit=self.valves.max_project_memories,
+                    folder_id=folder_id
+                )
+                if vector_results:
+                    project_facts = vector_results
+                    vector_search_succeeded = True
+
+        if not vector_search_succeeded and project_facts_sql:
+            # Fallback: most recent [PROJECT] facts from SQL
             project_facts = project_facts_sql[-self.valves.project_fallback_count:]
-            logger.info(f"[ContextInject] SQL fetching {len(project_facts)} [PROJECT] memories")
+            logger.info(f"[ContextInject] Using SQL fallback for {len(project_facts)} [PROJECT] memories")
 
         # 4. Get [LOCAL] facts — semantic search + recent SQL, deduplicated
         local_facts = []

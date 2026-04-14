@@ -77,7 +77,7 @@
     document.head.appendChild(style);
   }
 
-  // Матчит텍스트вида: (2) OR (2) Some title text
+  // Матчит текст вида: (2) OR (2) Some title text
   const CITE_RE = /^\((\d+)\)(?:\s+(.+))?$/;
 
   function getDomain(href) {
