@@ -380,13 +380,14 @@ def main():
 
 def configure_tts(token: str):
     """
-    Auto-configure TTS via OpenWebUI REST API.
-    Uses OpenAI-compatible endpoint with MWS GPT API.
+    Auto-configure TTS and STT via OpenWebUI REST API.
+    - TTS: OpenAI-compatible via MWS GPT API
+    - STT: OpenAI-compatible via local Whisper API (auto-transcribes uploaded audio files)
     """
     headers = {"Authorization": f"Bearer {token}"}
 
     try:
-        # Get current audio config to preserve STT settings
+        # Get current audio config to preserve existing settings
         resp = httpx.get(
             f"{OPENWEBUI_URL}/api/v1/audio/config",
             headers=headers,
@@ -398,13 +399,37 @@ def configure_tts(token: str):
 
         config = resp.json()
 
-        # Configure TTS — OpenAI-compatible with MWS GPT API
+        # ── TTS — OpenAI-compatible with MWS GPT API ──
         config["tts"]["ENGINE"] = "openai"
         config["tts"]["OPENAI_API_BASE_URL"] = "https://api.gpt.mws.ru/v1"
         config["tts"]["OPENAI_API_KEY"] = os.getenv("MWS_API_KEY", "")
         config["tts"]["MODEL"] = "tts-1"
         config["tts"]["VOICE"] = "alloy"
         config["tts"]["SPLIT_ON"] = "punctuation"
+
+        # ── STT — Local Whisper API ──
+        # When STT_ENGINE=openai, OpenWebUI sends audio to OPENAI_API_BASE_URL
+        # Our whisper-api container provides /v1/audio/transcriptions endpoint
+        config["stt"]["ENGINE"] = "openai"
+        config["stt"]["OPENAI_API_BASE_URL"] = "http://whisper-api:9000/v1"
+        config["stt"]["OPENAI_API_KEY"] = "not-needed"  # Our Whisper API has no auth
+        config["stt"]["MODEL"] = "whisper-1"
+
+        # SUPPORTED_CONTENT_TYPES — tells OpenWebUI which uploaded files to auto-transcribe
+        # When a user uploads an audio file in chat, it will be sent to Whisper
+        # and the transcribed text will be used as the file content
+        config["stt"]["SUPPORTED_CONTENT_TYPES"] = [
+            "audio/mpeg",       # .mp3
+            "audio/wav",        # .wav
+            "audio/x-wav",      # .wav (alt)
+            "audio/ogg",        # .ogg
+            "audio/webm",       # .webm (browser recording)
+            "audio/mp4",        # .m4a
+            "audio/x-m4a",      # .m4a (alt)
+            "audio/flac",       # .flac
+            "audio/aac",        # .aac
+            "video/webm",       # browser video recordings also have audio
+        ]
 
         # Update config
         resp = httpx.post(
@@ -414,12 +439,13 @@ def configure_tts(token: str):
             timeout=10,
         )
         if resp.status_code == 200:
-            print("[seed] 🔊 TTS настроен (OpenAI-compatible, MWS GPT API)")
+            print("[seed] 🔊 TTS настроен (MWS GPT API)")
+            print("[seed] 🎤 STT настроен (Whisper API — автотранскрипция аудиофайлов)")
         else:
-            print(f"[seed] ⚠️ TTS config update failed: {resp.status_code} {resp.text}")
+            print(f"[seed] ⚠️ Audio config update failed: {resp.status_code} {resp.text}")
 
     except Exception as e:
-        print(f"[seed] ⚠️ Could not configure TTS: {e}")
+        print(f"[seed] ⚠️ Could not configure audio: {e}")
 
 
 if __name__ == "__main__":
