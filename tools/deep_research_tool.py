@@ -155,11 +155,11 @@ RULES:
 
 INLINE CITATION RULES:
 - After each specific fact, claim, or statistic, add an inline citation
-- Format: [N] where N is the source number from the source reference list
+- Format: [N](url) where N is the source number and url is the EXACT URL from the source reference list
 - Place the citation immediately after the relevant word or fact, before the period
-- Multiple sources for one fact: [1][2] — no space between them
-- Example: "Температура выросла на 1.5°C за последние 10 лет [3]."
-- Do NOT use HTML tags, URLs, or round brackets inside citations — use ONLY the plain [N] format
+- Multiple sources for one fact: [1](url1)[2](url2) — no space between them
+- Example: "Температура выросла на 1.5°C за последние 10 лет [3](https://example.com/article)."
+- Do NOT use HTML tags or Unicode characters — use ONLY the plain [N](url) format (standard markdown link)
 - Cite every specific fact, number, or claim that is traceable to a source
 
 STRICT FORMAT:
@@ -182,7 +182,7 @@ STRICT FORMAT:
 
 STAGE_REDUCE_USER_TEMPLATE = """Topic: "{topic}"
 
-Source reference list (use these numbers N in [N] inline citations):
+Source reference list (use these EXACT URLs in [N](url) inline citations):
 {source_refs}
 
 Source extracts ({n_sources} sources):
@@ -1227,11 +1227,11 @@ class Tools:
             if m_sources:
                 final_report = final_report[:m_sources.start()].rstrip()
 
-            # --- Post-processing: нормализуем все цитаты к [N] ---
-            # citation-pills.js ищет [N] в тексте и заменяет на pill-бейджи,
-            # используя скрытую JSON-карту N→URL которую мы вставляем в конец.
+            # --- Post-processing: нормализуем все цитаты к [N](url) ---
+            # Это стандартные markdown-ссылки: Open WebUI рендерит их
+            # как <a href="url">N</a>, а citation-pills.js превращает их в pill.
+            # Не нужно никаких скрытых карт или DOM-хаков.
 
-            # Строим инвертированный маппинг index→url для JSON-карты.
             _cite_map: dict = dict(url_to_index) if url_to_index else {}
             _cite_counter = [len(_cite_map)]
 
@@ -1242,31 +1242,23 @@ class Tools:
                 return _cite_map[url]
 
             def _fmt_cite(url: str) -> str:
-                """Возвращает [N] и регистрирует URL в карте."""
-                return f"[{_cite_n_from_url(url)}]"
+                """[N](url) — стандартная markdown-ссылка."""
+                return f"[{_cite_n_from_url(url)}]({url})"
 
-            # 1) Голый URL в скобках: (https://...) → [N]
+            # 1) Голый URL в скобках: (https://...) → [N](url)
             final_report = re.sub(
                 r'\((https?://[^\s\)]{10,})\)',
                 lambda m: _fmt_cite(m.group(1).rstrip(".,;:!?)")),
                 final_report,
             )
 
-            # 2) Markdown-ссылки разных видов → [N]
-            #    [(N)](url)  [N](url)  [(N) Label](url)  [¹](url)
+            # 2) Старые форматы → [N](url):
+            #    [(N)](url)  [N](url) уже в нужном формате,  [(N) Label](url)  [¹](url)
             final_report = re.sub(
                 r'\[(?:[⁰¹²³⁴⁵⁶⁷⁸⁹]+|\(?[\d]+\)?(?:\s[^\]]{0,50})?)\]\((https?://[^\)]{10,})\)',
                 lambda m: _fmt_cite(m.group(1).rstrip(".,;:!?)")),
                 final_report,
             )
-
-            # 3) Вставляем скрытую JSON-карту N→URL в конец, чтобы citation-pills.js
-            #    мог резолвить [N] → конкретный URL для pill-ссылки.
-            if _cite_map:
-                index_to_url = {str(v): k for k, v in _cite_map.items()}
-                import json as _json
-                cite_json = _json.dumps(index_to_url, ensure_ascii=False)
-                final_report += f"\n\n<!-- mts-cite-map:{cite_json} -->"
 
             # Если инлайн-цитирование активно — источники уже вшиты в текст,
             # список в конце не нужен. Иначе (монолитный путь) — выводим список.

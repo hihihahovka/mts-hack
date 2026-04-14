@@ -3,9 +3,9 @@
  * ======================================
  * Стилизует citation-ссылки как pill-бейджи.
  *
- * Шаг 1: Читает скрытую JSON-карту из HTML-комментария <!-- mts-cite-map:{...} -->
- *         Карта: { "N": "https://..." }
- * Шаг 2: Находит [N] в тексте и заменяет на кликабельный pill-бейдж
+ * Шаг 1: Читает скрытый <span id="mts-cite-map" data-map='{"1":"url",...}'>
+ *         который бэкенд вставляет в конец отчёта.
+ * Шаг 2: Находит [N] в тексте и заменяет на кликабельный pill-бейдж.
  */
 (function () {
   'use strict';
@@ -74,22 +74,19 @@
         white-space: nowrap !important;
         max-width: 130px !important;
       }
-      /* Скрываем HTML-комментарий с JSON-картой */
-      .mts-cite-map-node { display: none !important; }
     `;
     document.head.appendChild(style);
   }
 
-  // Карта: N (строка) → URL
+  // Карта: "N" (строка) → "https://..."
   const urlMap = {};
 
-  // Регекс для поиска [N] в тексте, например [1] [12]
+  // Регекс: ищет [N] или [12] — только цифры в квадратных скобках
   const BRACKET_RE = /\[(\d+)\]/g;
 
   function getDomain(href) {
     try {
-      const u = new URL(href);
-      return u.hostname.replace(/^www\./, '');
+      return new URL(href).hostname.replace(/^www\./, '');
     } catch (e) {
       return '';
     }
@@ -107,51 +104,48 @@
   }
 
   /**
-   * Парсит HTML-комментарии вида <!-- mts-cite-map:{...} --> из DOM
-   * и заполняет urlMap данными из JSON.
+   * Читает все <span id="mts-cite-map" data-map="..."> в DOM
+   * и добавляет найденные пары N→URL в urlMap.
    */
-  function extractCiteMap(root) {
-    const walker = document.createTreeWalker(
-      root instanceof Document ? document.body : root,
-      NodeFilter.SHOW_COMMENT,
-      null
-    );
-    let node;
-    while ((node = walker.nextNode())) {
-      const text = node.nodeValue || '';
-      const match = text.match(/^\s*mts-cite-map:(\{[\s\S]*\})\s*$/);
-      if (match) {
-        try {
-          const parsed = JSON.parse(match[1]);
-          Object.assign(urlMap, parsed);
-          // Скрываем родительский элемент комментария если возможно
-          if (node.parentElement) {
-            node.parentElement.classList.add('mts-cite-map-node');
-          }
-        } catch (e) {
-          console.warn('[MTS] Failed to parse mts-cite-map JSON:', e);
-        }
+  function loadCiteMapSpans(root) {
+    const el = root instanceof Document ? document : root;
+    const spans = (el.querySelectorAll
+      ? el
+      : document
+    ).querySelectorAll('span[id="mts-cite-map"][data-map], span[data-map]');
+
+    spans.forEach(span => {
+      if (span.dataset.mtsPillLoaded) return;
+      span.dataset.mtsPillLoaded = '1';
+      try {
+        const parsed = JSON.parse(span.getAttribute('data-map'));
+        Object.assign(urlMap, parsed);
+      } catch (e) {
+        console.warn('[MTS] Failed to parse data-map JSON:', e, span.getAttribute('data-map'));
       }
-    }
+    });
   }
 
   /** Заменяет [N] в текстовых узлах на pill-ссылки из urlMap */
   function replaceBracketCitations(root) {
     if (!Object.keys(urlMap).length) return;
 
+    const searchRoot = root instanceof Document ? document.body : root;
+    if (!searchRoot) return;
+
     const walker = document.createTreeWalker(
-      root instanceof Document ? document.body : root,
+      searchRoot,
       NodeFilter.SHOW_TEXT,
       {
         acceptNode(node) {
           const parent = node.parentElement;
           if (!parent) return NodeFilter.FILTER_REJECT;
           const tag = parent.tagName.toLowerCase();
-          // Пропускаем <a>, <code>, <pre>, <script>, <style>
+          // Пропускаем теги, в которых замена не нужна
           if (['a', 'code', 'pre', 'script', 'style'].includes(tag)) {
             return NodeFilter.FILTER_REJECT;
           }
-          // Принимаем только если есть [N]
+          // Принимаем только если есть [цифра]
           BRACKET_RE.lastIndex = 0;
           if (!BRACKET_RE.test(node.textContent)) return NodeFilter.FILTER_REJECT;
           BRACKET_RE.lastIndex = 0;
@@ -166,7 +160,7 @@
 
     for (const textNode of nodesToReplace) {
       const text = textNode.textContent;
-      // Разбиваем на части по [N]
+      // Разбиваем на части: ["текст", "[1]", " продолжение", "[2]", ...]
       const parts = text.split(/(\[\d+\])/);
       if (parts.length <= 1) continue;
 
@@ -174,7 +168,6 @@
       const fragment = document.createDocumentFragment();
 
       for (const part of parts) {
-        BRACKET_RE.lastIndex = 0;
         const mPart = part.match(/^\[(\d+)\]$/);
         if (mPart && urlMap[mPart[1]]) {
           const num = mPart[1];
@@ -203,32 +196,41 @@
 
   /** Полный проход: сначала читаем карту, потом заменяем [N] */
   function scan(root) {
-    try { extractCiteMap(root); } catch (_) {}
+    try { loadCiteMapSpans(root); } catch (_) {}
     try { replaceBracketCitations(root); } catch (_) {}
   }
 
   const obs = new MutationObserver(muts => {
-    let needScan = false;
+    let needTextScan = false;
+
     for (const m of muts) {
       for (const n of m.addedNodes) {
-        if (n.nodeType === Node.COMMENT_NODE) {
-          // Новый комментарий — возможно карта
-          const text = n.nodeValue || '';
-          if (text.includes('mts-cite-map:')) {
-            try {
-              const match = text.match(/mts-cite-map:(\{[\s\S]*\})/);
-              if (match) Object.assign(urlMap, JSON.parse(match[1]));
-            } catch (_) {}
-            needScan = true;
-          }
-        } else if (n.nodeType === 1) {
-          // Новый элемент — ищем комментарии внутри
-          try { extractCiteMap(n); } catch (_) {}
-          needScan = true;
+        if (n.nodeType !== 1) continue; // только Element nodes
+
+        // Если это сам span с картой или он содержит такой span
+        const isMapSpan = (
+          n.tagName === 'SPAN' &&
+          (n.id === 'mts-cite-map' || n.hasAttribute('data-map'))
+        );
+        if (isMapSpan) {
+          try { loadCiteMapSpans(n.parentElement || document); } catch (_) {}
+          needTextScan = true;
         }
+
+        // Любой вложенный span с data-map
+        if (n.querySelectorAll) {
+          const inner = n.querySelectorAll('span[data-map]');
+          if (inner.length) {
+            try { loadCiteMapSpans(n); } catch (_) {}
+            needTextScan = true;
+          }
+        }
+
+        needTextScan = true;
       }
     }
-    if (needScan) {
+
+    if (needTextScan) {
       try { replaceBracketCitations(document.body); } catch (_) {}
     }
   });
@@ -236,7 +238,7 @@
   function init() {
     scan(document);
     obs.observe(document.body, { childList: true, subtree: true });
-    console.log('[MTS] Citation pills v4 ready (square-bracket [N] mode)');
+    console.log('[MTS] Citation pills v4 ready ([N] square-bracket mode)');
   }
 
   if (document.readyState === 'loading') {
