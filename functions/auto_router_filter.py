@@ -160,14 +160,42 @@ class Filter:
             return body
 
         # Ключевые слова для определения интентов (РУ + EN)
-        img_keywords = [
-            # Русский
-            "нарисуй", "сделай картинку", "сгенерируй картинку", "сгенерировать картинку",
-            "сгенерируй изображение", "сгенерировать изображение", "изобрази",
-            # English
-            "draw", "generate image", "generate a picture", "create image",
-            "create a picture", "make an image", "make a picture",
-            "paint", "render image", "visualize", "illustrate",
+
+        # Уровень 1: явные фразы, однозначно указывающие на генерацию изображений
+        img_explicit_phrases = [
+            # Русский — с упоминанием результата
+            "нарисуй", "изобрази", "сделай картинку", "сделай рисунок",
+            "сгенерируй картинку", "сгенерировать картинку",
+            "сгенерируй изображение", "сгенерировать изображение",
+            "сгенерируй фото", "сгенерировать фото",
+            "создай изображение", "создать изображение",
+            "создай картинку", "создать картинку",
+            "создай иллюстрацию", "нарисуй картину",
+            "придумай изображение", "сделай арт",
+            # English — explicit
+            "generate image", "generate a picture", "generate a photo",
+            "create image", "create a picture", "create an image",
+            "make an image", "make a picture", "make a photo",
+            "draw me", "paint me", "render image", "render a picture",
+            "illustrate", "visualize", "generate art", "create art",
+        ]
+
+        # Уровень 2: только глаголы без уточнения — срабатывают когда нет
+        # признаков кода/текста/схемы.
+        # «сгенерируй котёнка», «нарисуй лес», «создай пейзаж» → image
+        img_generation_verbs = [
+            "сгенерируй", "сгенерировать", "нарисуй", "нарисовать",
+            "создай арт", "сделай арт",
+            "draw ", "paint ", "generate ", "create a ",
+        ]
+
+        # Слова-исключения: если в запросе есть они — это НЕ генерация изображений
+        img_exclusion_words = [
+            "код", "скрипт", "функцию", "программу", "файл", "текст",
+            "таблицу", "схему", "алгоритм", "базу данных", "запрос",
+            "code", "script", "function", "program", "file", "text",
+            "table", "schema", "algorithm", "database", "query",
+            "class", "module", "api", "docs",
         ]
         code_keywords = [
             # Русский
@@ -194,15 +222,25 @@ class Filter:
         routing_reason = ""
 
         # Строгая детерминированная логика переключения
+        has_exclusion = any(w in last_message_lower for w in img_exclusion_words)
+
+        is_image_request = (
+            # Уровень 1: явная фраза с результатом
+            any(phrase in last_message_lower for phrase in img_explicit_phrases)
+            or
+            # Уровень 2: глагол генерации + нет слов-исключений (код, файл, схема...)
+            (any(verb in last_message_lower for verb in img_generation_verbs) and not has_exclusion)
+        )
+
         if is_research:
             if "tool_ids" not in body:
                 body["tool_ids"] = []
             if getattr(self.valves, "research_tool_id", "deep_research_tool") not in body["tool_ids"]:
                 body["tool_ids"].append(getattr(self.valves, "research_tool_id", "deep_research_tool"))
-            
+
             non_text_keywords = ["image", "whisper", "vl", "audio", "vision", "embedding"]
             is_text_model = original_model and not any(k in original_model.lower() for k in non_text_keywords)
-            
+
             if is_text_model:
                 routed_id = original_model
                 routing_reason = "Запрос на глубокий поиск (Deep Research Tool + Текущая текстовая модель)"
@@ -214,7 +252,7 @@ class Filter:
             self._routing_reason = "Автопереключение выключено"
             return body
 
-        elif any(keyword in last_message_lower for keyword in img_keywords) and "код" not in last_message_lower:
+        elif is_image_request:
             routed_id = model_tier["image"]
             routing_reason = "Запрос на генерацию изображения (Image Gen)"
         elif self._has_modality(messages, files, ["image"], (".png", ".jpg", ".jpeg", ".gif", ".webp")):

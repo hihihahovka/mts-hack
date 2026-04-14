@@ -150,25 +150,36 @@ RULES:
 - If sources contradict each other, mention it
 - Keep the report concise: MAX 3-5 subsections in "Подробный анализ"
 - Do NOT repeat the same information in different sections
-- Do NOT add a "Sources" section
+- Do NOT add a "Sources", "Источники", or "References" section at the end — citations are inline only
+
+INLINE CITATION RULES:
+- After each specific fact, claim, or statistic, add an inline citation
+- Format: [N](url) where N is the source number and url is the EXACT URL from the source reference list
+- Place the citation immediately after the relevant sentence or fact
+- Multiple sources for one fact: [1](url1) [2](url2)
+- Example: "Температура выросла на 1.5°C за последние 10 лет [3](https://example.com/article)."
+- Do NOT cite every sentence — only where the fact is specific and traceable to a source
 
 STRICT FORMAT (use ## headers exactly as shown):
 
 ## Краткий ответ
-2-3 sentences summarizing the key finding.
+2-3 sentences with inline citations.
 
 ## Подробный анализ
-3-5 subsections with ### headers. Each subsection: 2-4 paragraphs with facts.
+3-5 subsections with ### headers. Each subsection: 2-4 paragraphs with inline [N](url) citations.
 
 ## Ключевые выводы
-3-5 bullet points with specific, actionable takeaways."""
+3-5 bullet points with inline [N](url) citations."""
 
 STAGE_REDUCE_USER_TEMPLATE = """Topic: "{topic}"
+
+Source reference list (use these EXACT URLs in [N](url) inline citations):
+{source_refs}
 
 Source extracts ({n_sources} sources):
 {map_extractions}
 
-Write ONE report in Russian. MAX 5 subsections. Do NOT repeat information. No "Sources" section."""
+Write ONE report in Russian with inline [N](url) citations after each fact. MAX 5 subsections. No "Источники" section at the end."""
 
 STAGE_4_SYSTEM = STAGE_REDUCE_SYSTEM
 
@@ -1061,48 +1072,78 @@ class Tools:
                 False
             )
 
+            using_inline_citations = False
+            url_to_index = {}
+
             if not map_extractions:
                 # Fallback на монолитный если MAP ничего не дал
                 logger.warning("MAP phase produced no results — falling back to monolithic")
                 combined_content = "\n\n".join(read_results)
                 if len(combined_content) > self.valves.max_total_content:
                     combined_content = combined_content[:self.valves.max_total_content]
-                
+
                 sys_synth = STAGE_4_SYSTEM
                 prompt_synth = STAGE_4_USER_TEMPLATE.format(
                     topic=topic,
                     combined_content=combined_content
                 )
             else:
-                # REDUCE: синтез из MAP-экстрактов
+                # REDUCE: синтез из MAP-экстрактов с инлайн-ссылками
+
+                # Нумеруем источники по порядку их появления в экстрактах
+                url_to_index = {}
+                numbered_extractions = []
+                for extract in map_extractions:
+                    m_hdr = re.match(r"^### Источник: (.+?)\n", extract)
+                    if m_hdr:
+                        src_url = m_hdr.group(1).strip()
+                        if src_url not in url_to_index:
+                            url_to_index[src_url] = len(url_to_index) + 1
+                        idx = url_to_index[src_url]
+                        # Заменяем заголовок на нумерованный
+                        numbered_extract = f"[{idx}] {src_url}\n" + extract[m_hdr.end():]
+                        numbered_extractions.append(numbered_extract)
+                    else:
+                        numbered_extractions.append(extract)
+
+                # Список источников для промпта (numbered reference list)
+                source_refs = "\n".join(
+                    f"[{idx}]: {url}"
+                    for url, idx in sorted(url_to_index.items(), key=lambda x: x[1])
+                )
+
                 separator = "\n\n" + "─" * 40 + "\n\n"
-                map_combined = separator.join(map_extractions)
-                
+                map_combined = separator.join(numbered_extractions)
+
                 # Обрезка если нужно
                 if len(map_combined) > self.valves.max_total_content:
                     map_combined = map_combined[:self.valves.max_total_content]
                     map_combined += "\n\n...[часть экстрактов опущена]"
-                
+
+                using_inline_citations = True
                 sys_synth = STAGE_REDUCE_SYSTEM
                 prompt_synth = STAGE_REDUCE_USER_TEMPLATE.format(
                     topic=topic,
                     n_sources=n_relevant,
+                    source_refs=source_refs,
                     map_extractions=map_combined
                 )
         else:
             # ─── МОНОЛИТНЫЙ FALLBACK (старый режим) ───
-            
+            using_inline_citations = False
+            url_to_index = {}
+
             if self.valves.enable_context_compression:
                 separator = "\n\n" + "═" * 60 + "\n\n"
                 combined_content = separator.join(compressed_chunks)
             else:
                 separator = "\n\n" + "═" * 60 + "\n\n"
                 combined_content = separator.join(read_results)
-            
+
             if len(combined_content) > self.valves.max_total_content:
                 combined_content = combined_content[:self.valves.max_total_content]
                 combined_content += "\n\n...[часть материалов опущена из-за ограничений]"
-            
+
             sys_synth = STAGE_4_SYSTEM
             prompt_synth = STAGE_4_USER_TEMPLATE.format(
                 topic=topic,
@@ -1163,14 +1204,16 @@ class Tools:
             if m_sources:
                 final_report = final_report[:m_sources.start()].rstrip()
 
-            if source_lines and __event_emitter__:
+            # Если инлайн-цитирование активно — источники уже вшиты в текст,
+            # список в конце не нужен. Иначе (монолитный путь) — выводим список.
+            if not using_inline_citations and source_lines and __event_emitter__:
                 links_md = "\n".join(source_lines)
                 sources_text = "\n\n## Источники\n" + links_md + "\n"
                 await __event_emitter__({
                     "type": "message",
                     "data": {"content": sources_text}
                 })
-            
+
             await self.emit_status(
                 __event_emitter__,
                 "✅ Исследование завершено!",
