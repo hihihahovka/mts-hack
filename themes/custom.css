@@ -632,25 +632,26 @@ img[src*="splash"] {
    Аватары моделей — квадратные (убираем rounded-full)
    ============================================================ */
 
-/* Аватары в списке выбора модели и в чате */
-img[src*="favicon"].rounded-full,
-img[src*="favicon"][class*="rounded"],
-.rounded-full img[src*="favicon"],
-/* Все аватары модели в сообщениях чата */
-div[class*="message"] img.rounded-full,
-div[class*="chat"] img.rounded-full,
-/* Аватар рядом с именем модели в шапке сообщения */
-img.rounded-full[src*="favicon"],
-img[style*="border-radius"][src*="favicon"] {
+/* Все img с классом rounded-full — квадратные (модели в дропдауне, чате, шапке) */
+img.rounded-full,
+img[class*="rounded"] {
   border-radius: 0 !important;
   aspect-ratio: 1 / 1 !important;
   object-fit: contain !important;
 }
 
-/* Обёртки-контейнеры аватаров — тоже без скруглений */
-div.rounded-full:has(> img[src*="favicon"]),
-span.rounded-full:has(> img[src*="favicon"]) {
+/* Обёртки-контейнеры с img внутри — тоже без скруглений */
+div.rounded-full:has(> img),
+span.rounded-full:has(> img),
+button.rounded-full:has(> img) {
   border-radius: 0 !important;
+}
+
+/* Дополнительно: любой img внутри элемента с rounded-full */
+.rounded-full > img {
+  border-radius: 0 !important;
+  aspect-ratio: 1 / 1 !important;
+  object-fit: contain !important;
 }
 
 /* ============================================================
