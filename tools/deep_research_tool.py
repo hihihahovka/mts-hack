@@ -1170,12 +1170,21 @@ class Tools:
                     "type": "message",
                     "data": {"content": sources_text}
                 })
-            
+
             await self.emit_status(
                 __event_emitter__,
                 "✅ Исследование завершено!",
                 True
             )
+
+            # Заменяем финальный ответ модели пустой строкой,
+            # чтобы thinking-модель не добавляла рассуждения после источников.
+            if __event_emitter__:
+                await __event_emitter__({
+                    "type": "replace",
+                    "data": {"content": ""}
+                })
+
             return ""
 
         except Exception as e:
