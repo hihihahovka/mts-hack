@@ -141,16 +141,17 @@ Provide:
 If the source contains NO useful information on the topic, respond with
 "IRRELEVANT SOURCE" and nothing else."""
 
-STAGE_REDUCE_SYSTEM = """You are an expert research analyst. Write a structured report in Russian.
+STAGE_REDUCE_SYSTEM = """You are an expert research analyst. Write a deep research report in Russian.
 
 RULES:
 - Organize by THEME, not by source
 - Use ONLY facts from the provided sources — do NOT invent data
-- Include specific names, numbers, dates from sources
+- Include specific names, numbers, dates, statistics from sources — be detailed and thorough
 - If sources contradict each other, mention it
-- Keep the report concise: MAX 3-5 subsections in "Подробный анализ"
+- Each theme section should have 2-5 subsections with detailed paragraphs
 - Do NOT repeat the same information in different sections
 - Do NOT add a "Sources", "Источники", or "References" section at the end — citations are inline only
+- Write in a rich, analytical style — do NOT be brief, expand each point with specific facts and data
 
 INLINE CITATION RULES:
 - After each specific fact, claim, or statistic, add an inline citation
@@ -159,28 +160,40 @@ INLINE CITATION RULES:
 - Multiple sources for one fact: [(1)](url1)[(2)](url2) — no space between them
 - Example: "Температура выросла на 1.5°C за последние 10 лет[(3)](https://example.com/article)."
 - Do NOT use HTML tags or Unicode characters — use ONLY the plain [(N)](url) format
-- Do NOT cite every sentence — only where the fact is specific and traceable to a source
+- Cite every specific fact, number, or claim that is traceable to a source
 
-STRICT FORMAT (use ## headers exactly as shown):
+STRICT FORMAT:
 
-## Краткий ответ
-2-3 sentences with inline citations.
+[NO HEADER — write 2-4 sentences introducing the topic and its significance. Do NOT use any header or label here. This is a plain introductory paragraph.]
 
-## Подробный анализ
-3-5 subsections with ### headers. Each subsection: 2-4 paragraphs with inline [N](url) citations.
+## 1. [Theme Name]
+[1-2 sentences describing this theme]
 
-## Ключевые выводы
-3-5 bullet points with inline [N](url) citations."""
+### **[Subsection Name]**: [detailed paragraph with specific facts, numbers, dates from sources, inline citations]
+### **[Subsection Name]**: [detailed paragraph ...]
+
+## 2. [Theme Name]
+...
+
+(3-6 numbered ## sections total, each with 2-5 ### subsections)
+
+## Итоги
+3-6 bullet points summarizing the most important findings with inline citations. Be specific — include numbers and key facts."""
 
 STAGE_REDUCE_USER_TEMPLATE = """Topic: "{topic}"
 
-Source reference list (use these EXACT URLs in [N](url) inline citations):
+Source reference list (use these EXACT URLs in [(N)](url) inline citations):
 {source_refs}
 
 Source extracts ({n_sources} sources):
 {map_extractions}
 
-Write ONE report in Russian with inline [N](url) citations after each fact. MAX 5 subsections. No "Источники" section at the end."""
+Write ONE deep research report in Russian following the STRICT FORMAT exactly:
+1. Start with a plain introductory paragraph (NO header label)
+2. Then numbered ## sections (## 1. Theme, ## 2. Theme, etc.) with ### subsections containing detailed facts and inline citations
+3. End with ## Итоги bullet points
+
+Be thorough and detailed — include all specific facts, statistics, names and dates from the sources. No "Источники" section at the end."""
 
 STAGE_4_SYSTEM = STAGE_REDUCE_SYSTEM
 
@@ -189,7 +202,12 @@ STAGE_4_USER_TEMPLATE = """Topic: "{topic}"
 Collected materials:
 {combined_content}
 
-Write ONE report in Russian. MAX 5 subsections. Do NOT repeat information. No "Sources" section."""
+Write ONE deep research report in Russian following the STRICT FORMAT:
+1. Start with a plain introductory paragraph (NO header label)
+2. Then numbered ## sections (## 1. Theme, ## 2. Theme, etc.) with ### subsections containing detailed facts and inline citations
+3. End with ## Итоги bullet points
+
+Be thorough and detailed. Do NOT repeat information. No "Sources" section."""
 
 logger = logging.getLogger(__name__)
 
@@ -1176,7 +1194,7 @@ class Tools:
                 sys_synth,
                 __event_emitter__,
                 timeout=self.valves.llm_timeout,
-                stop_on_duplicate_header="## Краткий ответ",
+                stop_on_duplicate_header=None,
                 stop_on_headers=["## Источники", "## Sources", "## References"],
             )
             
