@@ -567,3 +567,52 @@ select,
 #mts-appearance-menu-item {
   transition: background 0.15s ease;
 }
+
+/* ============================================================
+   МТС Красный — лаконичные акценты в главном интерфейсе
+   ============================================================ */
+
+/* 1. Тонкая красная левая граница сайдбара — фирменный разделитель */
+:root[data-theme^="mts"] #sidebar {
+  border-right: 2px solid rgba(255, 0, 50, 0.25) !important;
+}
+
+/* 2. Кнопка отправки сообщения — красная */
+:root[data-theme^="mts"] button[aria-label="Send message"],
+:root[data-theme^="mts"] button[aria-label="Отправить сообщение"] {
+  background-color: var(--mts-red) !important;
+  color: #fff !important;
+  border-radius: 50% !important;
+  transition: background-color 0.2s ease, box-shadow 0.2s ease !important;
+}
+:root[data-theme^="mts"] button[aria-label="Send message"]:hover,
+:root[data-theme^="mts"] button[aria-label="Отправить сообщение"]:hover {
+  background-color: var(--mts-red-dark) !important;
+  box-shadow: 0 0 0 4px rgba(255, 0, 50, 0.2) !important;
+}
+
+/* 3. Активный чат в сайдбаре — красная левая полоска */
+:root[data-theme^="mts"] #sidebar a[aria-current="page"],
+:root[data-theme^="mts"] #sidebar [data-active="true"] {
+  border-left: 3px solid var(--mts-red) !important;
+  padding-left: calc(0.5rem - 3px) !important;
+}
+
+/* 4. Кнопка «Новый чат» — красная при наведении */
+:root[data-theme^="mts"] #sidebar-new-chat-button:hover {
+  color: var(--mts-red) !important;
+}
+
+/* 5. Иконка приложения в шапке сайдбара — лёгкое красное свечение */
+:root[data-theme^="mts"] #sidebar img[src*="favicon"],
+:root[data-theme^="mts"] #sidebar img[alt*="logo"] {
+  filter: drop-shadow(0 0 6px rgba(255, 0, 50, 0.45));
+  border-radius: 6px;
+}
+
+/* 6. Поле ввода в фокусе — красный outline */
+:root[data-theme^="mts"] div[contenteditable]:focus,
+:root[data-theme^="mts"] div[id*="chat-input"]:focus-within {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(255, 0, 50, 0.35) !important;
+}

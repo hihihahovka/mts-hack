@@ -7,6 +7,12 @@ RUN sed -i 's/# db = None/db = None/' /app/backend/open_webui/internal/db.py
 # Копируем кастомную тему (будет доступна по /static/custom.css)
 COPY themes/custom.css /app/build/static/custom.css
 
+# Заменяем логотип OpenWebUI на логотип МТС
+COPY themes/mts-logo.png /app/build/static/favicon.png
+COPY themes/mts-logo.png /app/build/static/favicon-dark.png
+COPY themes/mts-logo.png /app/build/static/splash.png
+COPY themes/mts-logo.png /app/build/static/splash-dark.png
+
 # Копируем фирменные шрифты МТС
 COPY themes/fonts/mts/ /app/build/static/fonts/
 
