@@ -233,9 +233,24 @@
   color: var(--theme-color);
 }
 
-/* Chat message user bubble accent border */
-:root[data-theme] .user-message {
-  border-left: 3px solid var(--theme-color) !important;
+
+/* ============================================================
+   Central chat area — neutral dark in dark mode
+   ============================================================
+   Custom themes tint --color-gray-* globally, which makes the
+   sidebar look great but also tints the main chat area.
+   We force the central content wrapper to neutral-dark so only
+   the sidebar keeps the accent.
+   ============================================================ */
+
+/* Main app outer wrapper — neutral dark bg */
+:root.dark[data-theme] .app > div {
+  background-color: #171717 !important;
+}
+
+/* Scrollbar track should also stay neutral in the main area */
+:root.dark[data-theme] .app > div::-webkit-scrollbar-track {
+  background-color: #171717;
 }
 
 
