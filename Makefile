@@ -10,7 +10,7 @@ else
 endif
 
 # Docker image settings
-IMAGE_NAME = ghcr.io/hihihahovka/mts-hack/open-webui
+IMAGE_NAME = lordetsky/mts-ai-workspace
 IMAGE_TAG  = latest
 
 # Default target
