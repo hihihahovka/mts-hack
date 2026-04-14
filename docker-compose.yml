@@ -27,6 +27,7 @@ services:
       - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY:-supersecretkey123}
       - WEBUI_AUTH=${WEBUI_AUTH:-true}
       - ENABLE_SIGNUP=true
+      - AIOHTTP_CLIENT_TIMEOUT=600
       - DATABASE_URL=postgresql://${POSTGRES_USER:-openwebui}:${POSTGRES_PASSWORD:-openwebui_secret}@postgres:5432/${POSTGRES_DB:-openwebui}
     volumes:
       - open-webui-data:/app/backend/data

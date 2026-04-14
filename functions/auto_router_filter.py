@@ -93,7 +93,8 @@ class Filter:
         self, body: dict, __user__: dict = None, __request__: Request = None
     ) -> dict:
         """
-        INLET: Analyzes the user's message using an LLM and routes to the optimal model.
+        INLET: Analyzes the user's message and routes to the optimal model
+        based on the selected tier (Light/Pro) and modalities.
         """
         if not self.valves.enable_auto_routing or __request__ is None:
             return body
@@ -102,91 +103,24 @@ class Filter:
         if not messages:
             return body
 
-        # Avoid routing the routing request itself
+        # Avoid routing internal routing requests (if any)
         if body.get("metadata", {}).get("task") == "MODEL_AUTOROUTING":
             return body
 
         original_model = body.get("model", "")
 
-        # Skip routing for pipe models (e.g. "image_gen_pipe.qwen-image")
-        # The user explicitly chose a pipe — don't override their selection
-        if "." in original_model:
-            log.info(f"[AutoRouter] Skipping routing for pipe model: {original_model}")
+        # Читаем режим авторутинга из HTTP-заголовка (X-MTS-Routing-Mode)
+        # Этот метод гарантированно доходит до фильтра независимо от Pydantic-валидации
+        autorouting_mode = __request__.headers.get("x-mts-routing-mode", "off").lower().strip()
+        if autorouting_mode not in ("off", "light", "pro"):
+            autorouting_mode = "off"
+
+        log.info(f"[AutoRouter] mode={autorouting_mode}, model={original_model}")
+
+        # Если авторутинг выключен, используется только выбранная пользователем модель
+        if autorouting_mode == "off":
+            self._routing_reason = "Автопереключение выключено"
             return body
-
-        last_message = self._get_last_user_message(messages)
-        files = body.get("files", [])
-
-        has_image = self._has_modality(
-            messages, files, ["image"], (".png", ".jpg", ".jpeg", ".gif")
-        )
-        if has_image:
-            if "metadata" not in body:
-                body["metadata"] = {}
-            body["metadata"]["_routed_model"] = "qwen2.5-vl-72b"
-            body["model"] = "qwen2.5-vl-72b"
-            return body
-            
-        # Hardcode image generation routing
-        last_message_lower = last_message.lower()
-        if any(keyword in last_message_lower for keyword in ["нарисуй", "сгенерируй", "draw", "create an image", "изобрази"]):
-            if "metadata" not in body:
-                body["metadata"] = {}
-            body["metadata"]["_routed_model"] = "image_gen_pipe.qwen-image"
-            body["model"] = "image_gen_pipe.qwen-image"
-            return body
-
-        has_audio = self._has_modality(
-            messages, files, ["audio"], (".mp3", ".wav", ".ogg", ".m4a")
-        )
-        has_text_file = self._has_modality(
-            messages,
-            files,
-            ["text", "pdf", "document"],
-            (".txt", ".pdf", ".docx", ".csv"),
-        )
-
-        models_dict = __request__.app.state.MODELS
-        available_models = []
-        for model_id, model_data in models_dict.items():
-            if (
-                "pipeline" in model_data
-                and model_data["pipeline"].get("type") == "filter"
-            ):
-                continue
-            if model_id == "autorouting":
-                continue
-
-            desc = model_data.get("info", {}).get("meta", {}).get("description", "")
-            capabilities = (
-                model_data.get("info", {}).get("meta", {}).get("capabilities", {})
-            )
-            if capabilities.get("vision"):
-                desc += " (Vision/Image capable VLM)"
-
-            if not desc:
-                # Fallback to name keywords if there's no description
-                desc = (
-                    "vision vlm image"
-                    if any(
-                        x in model_id.lower() or x in model_data.get("name", "").lower()
-                        for x in ["vision", "vlm", "vl"]
-                    )
-                    else ""
-                )
-
-            available_models.append(
-                {
-                    "id": model_id,
-                    "name": model_data.get("name", model_id),
-                    "description": desc[:150],
-                }
-            )
-
-        prompt = f"""You are an advanced AI routing system. DO NOT ANSWER the user's query. Your ONLY task is to select the most appropriate model ID from the Available Models list for the user's request.
-
-Available Models:
-{json.dumps(available_models, indent=2)}
 
 Original Model Selected by User: {original_model}
 
@@ -216,47 +150,94 @@ Provide your response strictly as a JSON object:
             "messages": [{"role": "user", "content": prompt}],
             "stream": False,
             "metadata": {"task": "MODEL_AUTOROUTING", "bypass_filter": True},
+
+# Определяем словари с моделями для каждого уровня
+        LIGHT_MODELS = {
+            "text": "llama-3.1-8b-instruct",
+            "reasoning": "deepseek-r1-distill-qwen-32b",
+            "code": "qwen3-coder-480b-a35b",
+            "vision": "qwen2.5-vl",
+            "image": "image_gen_pipe.qwen-image-lightning",
+            "audio": "whisper-turbo-local",
+
+}
+
+        PRO_MODELS = {
+            "text": "glm-4.6-357b",
+            "reasoning": "QwQ-32B",
+            "code": "qwen3-coder-480b-a35b",
+            "vision": "qwen2.5-vl-72b",
+            "image": "image_gen_pipe.qwen-image",
+            "audio": "whisper-medium",
         }
 
-        try:
-            response = await generate_chat_completion(
-                __request__, form_data=payload, user=__user__, bypass_filter=True
-            )
-            if "choices" in response and len(response["choices"]) > 0:
-                result_text = response["choices"][0]["message"]["content"].strip()
+        model_tier = LIGHT_MODELS if autorouting_mode == "light" else PRO_MODELS
 
-                # Clean up <think> blocks common in Deepseek R1
-                result_text = re.sub(
-                    r"<think>.*?</think>", "", result_text, flags=re.DOTALL
-                ).strip()
+        last_message = self._get_last_user_message(messages)
+        files = body.get("files", [])
+        last_message_lower = last_message.lower()
 
-                # Match the longest model ID present in the generated text
-                sorted_models = sorted(
-                    available_models, key=lambda x: len(x["id"]), reverse=True
-                )
+        # Ключевые слова для определения интентов (РУ + EN)
+        img_keywords = [
+            # Русский
+            "нарисуй", "сделай картинку", "сгенерируй картинку", "сгенерировать картинку",
+            "сгенерируй изображение", "сгенерировать изображение", "изобрази",
+            # English
+            "draw", "generate image", "generate a picture", "create image",
+            "create a picture", "make an image", "make a picture",
+            "paint", "render image", "visualize", "illustrate",
+        ]
+        code_keywords = [
+            # Русский
+            "скрипт", "закодить", "напиши код", "ошибка в коде", "напиши функцию",
+            # Языки программирования (одинаковый код для RU+EN)
+            "python", "javascript", "html", "css", "c++", "java ",
+            "typescript", "golang", "rust", "kotlin", "swift", "php",
+            # English
+            "write code", "fix the code", "write a function", "write a script",
+            "debug", "refactor", "implement", "coding", "programming",
+            "write a class", "write a program",
+        ]
+        reasoning_keywords = [
+            # Русский
+            "подумай", "логика", "математика", "реши задачу", "докажи",
+            "головоломка", "посчитай", "уравнение", "как решить",
+            # English
+            "think step by step", "reason", "logic", "mathematics", "math",
+            "solve", "prove", "puzzle", "calculate", "equation", "how to solve",
+            "step by step", "chain of thought",
+        ]
 
-                routed_id = None
-                for m in sorted_models:
-                    if m["id"] in result_text:
-                        routed_id = m["id"]
-                        break
+        routed_id = None
+        routing_reason = ""
 
-                if routed_id:
-                    if "metadata" not in body:
-                        body["metadata"] = {}
-                    body["metadata"]["_routed_model"] = routed_id
-                    body["model"] = routed_id
-                    return body
+        # Строгая детерминированная логика переключения
+        if any(keyword in last_message_lower for keyword in img_keywords) and "код" not in last_message_lower:
+            routed_id = model_tier["image"]
+            routing_reason = "Запрос на генерацию изображения (Image Gen)"
+        elif self._has_modality(messages, files, ["image"], (".png", ".jpg", ".jpeg", ".gif", ".webp")):
+            routed_id = model_tier["vision"]
+            routing_reason = "Прикреплено изображение (Vision LLM)"
+        elif self._has_modality(messages, files, ["audio"], (".mp3", ".wav", ".ogg", ".m4a")):
+            routed_id = model_tier["audio"]
+            routing_reason = "Прикреплено аудио (Распознавание Речи STT)"
+        elif any(keyword in last_message_lower for keyword in code_keywords):
+            routed_id = model_tier["code"]
+            routing_reason = "Запрос на написание кода (Code LLM)"
+        elif any(keyword in last_message_lower for keyword in reasoning_keywords):
+            routed_id = model_tier["reasoning"]
+            routing_reason = "Сложный логический запрос (Reasoning LLM)"
+        else:
+            routed_id = model_tier["text"]
+            routing_reason = "Общий текстовый запрос (General LLM)"
 
-        except Exception as e:
-            log.error(f"Autorouting LLM selection error: {e}")
-
-        # Fallback if LLM fails or no match found
         if "metadata" not in body:
             body["metadata"] = {}
-        body["metadata"]["_routed_model"] = original_model
-        body["model"] = original_model
-
+            
+        body["metadata"]["_routed_model"] = routed_id
+        body["model"] = routed_id
+        
+        self._routing_reason = f"{routing_reason} • Режим: {autorouting_mode.upper()}"
         return body
 
     async def outlet(
@@ -277,5 +258,6 @@ Provide your response strictly as a JSON object:
             if msg.get("role") == "assistant":
                 content = msg.get("content", "")
                 if isinstance(content, str) and content:
-                    badge = f"\n\n---\n🤖 *{routed_model}* — {self._routing_reason}\n"
+                    msg["content"] += f"\n\n---\n🤖 *{routed_model}* — {self._routing_reason}\n"
+                    break
         return body
