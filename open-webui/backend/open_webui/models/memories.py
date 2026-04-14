@@ -105,6 +105,26 @@ class MemoriesTable:
             except Exception:
                 return None
 
+    def get_local_memories_by_chat_id(self, chat_id: str, db: Optional[Session] = None) -> list[MemoryModel]:
+        with get_db_context(db) as db:
+            try:
+                # Find all memory entries that start with [LOCAL:chat:{chat_id}]
+                pattern = f"\[LOCAL:chat:{chat_id}\]%"
+                memories = db.query(Memory).filter(Memory.content.like(pattern)).all()
+                return [MemoryModel.model_validate(memory) for memory in memories]
+            except Exception:
+                return []
+
+    def get_folder_memories_by_folder_id(self, folder_id: str, db: Optional[Session] = None) -> list[MemoryModel]:
+        with get_db_context(db) as db:
+            try:
+                # Find all memory entries that start with [PROJECT:folder:{folder_id}]
+                pattern = f"\[PROJECT:folder:{folder_id}\]%"
+                memories = db.query(Memory).filter(Memory.content.like(pattern)).all()
+                return [MemoryModel.model_validate(memory) for memory in memories]
+            except Exception:
+                return []
+
     def get_memory_by_id(self, id: str, db: Optional[Session] = None) -> Optional[MemoryModel]:
         with get_db_context(db) as db:
             try:

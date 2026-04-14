@@ -344,14 +344,6 @@ class Filter:
         if self._is_local_category(content):
             # All LOCAL memories go into one collection per user
             return self._safe_collection_name("local", user_id)
-        elif self._is_project_category(content):
-            cat = self._get_category(content)
-            if ":folder:" in cat:
-                import re
-                match = re.search(r':folder:([\w-]+)', cat)
-                if match:
-                    return self._safe_collection_name("folder", user_id, match.group(1))
-            return f"user-memory-{user_id}"
         return ""
 
     # =========================================================================
@@ -607,6 +599,7 @@ CRITICAL RULES:
    - If the User rejects or corrects the AI, DO NOT extract the Assistant's proposed solution.
 3. Focus on WHAT was decided/built, not HOW the conversation went.
 4. Keep facts technical and specific — include exact names, paths, technologies, patterns.
+5. NEVER return the examples provided below as actual extractions. They are purely for format demonstration.
 
 BAD examples (too vague):
 - "Worked on authentication" 
@@ -616,7 +609,6 @@ GOOD examples (specific and useful):
 - "Implemented JWT auth via /api/v1/auth endpoint using MWS GPT API key"
 - "Database schema: users table has id, email, name, is_active columns"
 - "Architecture: three-filter pipeline auto_router → context_inject → memory_extract"
-- "Deadlock fix: extraction LLM calls go directly to MWS API, not through OpenWebUI"
 
 TEMPORAL GROUNDING (TODAY IS {current_date}):
 CRITICAL: Convert ALL relative dates to absolute dates. Never store "tomorrow", "next week" etc.
@@ -633,8 +625,8 @@ Chat History:
 
 Output ONLY a valid JSON array. Each object MUST include a "reason" key. If nothing to extract, return [].
 [
-  {{"reason": "User confirmed the hybrid memory architecture", "action": "ADD", "fact": "Using hybrid memory: SQL for global facts, VectorDB for semantic project search"}},
-  {{"reason": "Architecture decision was changed from X to Y", "action": "UPDATE", "target_id": "id", "fact": "updated decision"}}
+  {{"reason": "<explanation why this was extracted>", "action": "ADD", "fact": "<the extracted technical decision text>"}},
+  {{"reason": "<explanation why this needs updating>", "action": "UPDATE", "target_id": "<exact_id>", "fact": "<updated technical decision text>"}}
 ]"""
 
         return await self._call_extraction_llm(prompt)

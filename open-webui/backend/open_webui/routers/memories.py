@@ -85,8 +85,15 @@ async def add_memory(
 
     vector = await request.app.state.EMBEDDING_FUNCTION(memory.content, user=user)
 
+    is_local = memory.content and "[LOCAL" in memory.content
+    collection_name = f'user-memory-{user.id}'
+    if is_local:
+        import hashlib
+        hashed = hashlib.md5(user.id.encode()).hexdigest()
+        collection_name = f'local-{hashed}'
+
     VECTOR_DB_CLIENT.upsert(
-        collection_name=f'user-memory-{user.id}',
+        collection_name=collection_name,
         items=[
             {
                 'id': memory.id,
@@ -175,7 +182,13 @@ async def reset_memory_from_vector_db(
             detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
         )
 
-    VECTOR_DB_CLIENT.delete_collection(f'user-memory-{user.id}')
+    try:
+        VECTOR_DB_CLIENT.delete_collection(f'user-memory-{user.id}')
+        import hashlib
+        hashed = hashlib.md5(user.id.encode()).hexdigest()
+        VECTOR_DB_CLIENT.delete_collection(f'local-{hashed}')
+    except Exception:
+        pass
 
     memories = Memories.get_memories_by_user_id(user.id)
 
@@ -184,21 +197,32 @@ async def reset_memory_from_vector_db(
         *[request.app.state.EMBEDDING_FUNCTION(memory.content, user=user) for memory in memories]
     )
 
-    VECTOR_DB_CLIENT.upsert(
-        collection_name=f'user-memory-{user.id}',
-        items=[
-            {
-                'id': memory.id,
-                'text': memory.content,
-                'vector': vectors[idx],
-                'metadata': {
-                    'created_at': memory.created_at,
-                    'updated_at': memory.updated_at,
-                },
-            }
-            for idx, memory in enumerate(memories)
-        ],
-    )
+    global_items = []
+    local_items = []
+
+    for idx, memory in enumerate(memories):
+        is_local = memory.content and "[LOCAL" in memory.content
+        item = {
+            'id': memory.id,
+            'text': memory.content,
+            'vector': vectors[idx],
+            'metadata': {
+                'created_at': memory.created_at,
+                'updated_at': memory.updated_at,
+            },
+        }
+        if is_local:
+            local_items.append(item)
+        else:
+            global_items.append(item)
+
+    if global_items:
+        VECTOR_DB_CLIENT.upsert(collection_name=f'user-memory-{user.id}', items=global_items)
+    
+    if local_items:
+        import hashlib
+        hashed = hashlib.md5(user.id.encode()).hexdigest()
+        VECTOR_DB_CLIENT.upsert(collection_name=f'local-{hashed}', items=local_items)
 
     return True
 
@@ -231,6 +255,9 @@ async def delete_memory_by_user_id(
     if result:
         try:
             VECTOR_DB_CLIENT.delete_collection(f'user-memory-{user.id}')
+            import hashlib
+            hashed = hashlib.md5(user.id.encode()).hexdigest()
+            VECTOR_DB_CLIENT.delete_collection(f'local-{hashed}')
         except Exception as e:
             log.error(e)
         return True
@@ -273,8 +300,15 @@ async def update_memory_by_id(
     if form_data.content is not None:
         vector = await request.app.state.EMBEDDING_FUNCTION(memory.content, user=user)
 
+        is_local = memory.content and "[LOCAL" in memory.content
+        collection_name = f'user-memory-{user.id}'
+        if is_local:
+            import hashlib
+            hashed = hashlib.md5(user.id.encode()).hexdigest()
+            collection_name = f'local-{hashed}'
+
         VECTOR_DB_CLIENT.upsert(
-            collection_name=f'user-memory-{user.id}',
+            collection_name=collection_name,
             items=[
                 {
                     'id': memory.id,
@@ -315,10 +349,25 @@ async def delete_memory_by_id(
             detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
         )
 
+    memory = Memories.get_memory_by_id(memory_id, db=db)
+    if not memory or memory.user_id != user.id:
+        return False
+
+    is_local = memory.content and "[LOCAL" in memory.content
     result = Memories.delete_memory_by_id_and_user_id(memory_id, user.id, db=db)
 
     if result:
-        VECTOR_DB_CLIENT.delete(collection_name=f'user-memory-{user.id}', ids=[memory_id])
+        collection_names = [f'user-memory-{user.id}']
+        if is_local:
+            import hashlib
+            hashed = hashlib.md5(user.id.encode()).hexdigest()
+            collection_names.append(f'local-{hashed}')
+            
+        for c_name in collection_names:
+            try:
+                VECTOR_DB_CLIENT.delete(collection_name=c_name, ids=[memory_id])
+            except Exception:
+                pass
         return True
 
     return False

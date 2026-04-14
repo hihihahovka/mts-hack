@@ -38,6 +38,8 @@
 	import ChatPlus from '../icons/ChatPlus.svelte';
 	import ChatCheck from '../icons/ChatCheck.svelte';
 	import Knobs from '../icons/Knobs.svelte';
+	import Brain from '../icons/Brain.svelte';
+	import LocalMemoryModal from '../chat/Settings/Personalization/LocalMemoryModal.svelte';
 	import { WEBUI_API_BASE_URL } from '$lib/constants';
 
 	const i18n = getContext('i18n');
@@ -59,7 +61,10 @@
 
 	let showShareChatModal = false;
 	let showDownloadChatModal = false;
+	let showLocalMemoryModal = false;
 </script>
+
+<LocalMemoryModal bind:show={showLocalMemoryModal} chatId={$chatId} />
 
 <ShareChatModal bind:show={showShareChatModal} chatId={$chatId} />
 
@@ -113,28 +118,25 @@
 				>
 					{#if showModelSelector}
 						<div class="flex items-center gap-2 mt-1">
-							<button 
-								class="px-3 py-1.5 flex items-center gap-1.5 text-xs font-semibold rounded-lg transition-colors border shadow-xs flex-none
-								{selectedModels.includes('autorouting') 
-									? 'bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-700 border-blue-200 dark:from-blue-900/30 dark:to-indigo-900/30 dark:text-blue-300 dark:border-blue-800' 
-									: 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50 dark:bg-gray-850 dark:text-gray-300 dark:border-gray-700 dark:hover:bg-gray-800'}"
-								on:click={() => {
-									if (selectedModels.includes('autorouting')) {
-										let defaultModels = $settings?.models ? [...$settings.models] : [];
-										selectedModels = defaultModels.length && !defaultModels.includes('autorouting') ? defaultModels : [''];
-									} else {
-										selectedModels = ['autorouting'];
-									}
-								}}
-							>
-								⚡ {$i18n.t('Автопереключение')} {selectedModels.includes('autorouting') ? 'ВКЛ' : 'ВЫКЛ'}
-							</button>
-
-							{#if !selectedModels.includes('autorouting')}
-								<div class="flex-1 min-w-0">
-									<ModelSelector bind:selectedModels showSetDefault={!shareEnabled} />
+							<div class="flex-1 min-w-0">
+								<ModelSelector bind:selectedModels showSetDefault={!shareEnabled}>
+									<div slot="actions" class="flex items-center pl-0.5">
+										{#if chat?.id && !$temporaryChatEnabled}
+												<Tooltip content={$i18n.t('Local Memory')}>
+													<button
+														class="p-0.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors"
+														on:click={() => {
+															showLocalMemoryModal = true;
+														}}
+														aria-label="Local Memory"
+													>
+														<Brain className="size-3.5" strokeWidth="1.5" />
+													</button>
+												</Tooltip>
+											{/if}
+										</div>
+									</ModelSelector>
 								</div>
-							{/if}
 						</div>
 					{/if}
 				</div>
@@ -234,6 +236,8 @@
 							</button>
 						</Menu>
 					{/if}
+
+
 
 					{#if $user?.role === 'admin' || ($user?.permissions.chat?.controls ?? true)}
 						<Tooltip content={$i18n.t('Controls')}>
