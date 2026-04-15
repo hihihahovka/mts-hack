@@ -10,12 +10,13 @@
 
   // Правила определения категории по ID модели (порядок важен — первое совпадение)
   const RULES = [
-    { tag: 'Логика',   keywords: ['qwq', 'deepseek-r1', 'r1-distill', 'o1-', 'o3-'] },
-    { tag: 'Код',      keywords: ['coder', 'codestral'] },
-    { tag: 'Зрение',   keywords: ['-vl-', 'vl-72', '-vl', 'vision', 'cotype'] },
-    { tag: 'Картинки', keywords: ['image', 'dall-e', 'flux', 'lightning'] },
-    { tag: 'Аудио',    keywords: ['whisper', 'asr', 'stt', 'speech'] },
-    { tag: 'Текст',    keywords: [] }, // catch-all — всё остальное
+    { tag: 'Логика',     keywords: ['qwq', 'deepseek-r1', 'r1-distill', 'o1-', 'o3-'] },
+    { tag: 'Код',        keywords: ['coder', 'codestral'] },
+    { tag: 'Зрение',     keywords: ['-vl-', 'vl-72', '-vl', 'vision', 'cotype'] },
+    { tag: 'Картинки',   keywords: ['image', 'dall-e', 'flux', 'lightning'] },
+    { tag: 'Аудио',      keywords: ['whisper', 'asr', 'stt', 'speech'] },
+    { tag: 'Эмбеддинги', keywords: ['embedding', 'bge'] },
+    { tag: 'Текст',      keywords: [] }, // catch-all — всё остальное
   ];
 
   function tagForModel(modelId) {
@@ -58,10 +59,13 @@
           if (!model.info.meta) model.info.meta = {};
           const existing = Array.isArray(model.info.meta.tags) ? model.info.meta.tags : [];
 
-          // Не дублируем тег
-          if (!existing.some(t => t.name === catTag)) {
-            model.info.meta.tags = [...existing, { name: catTag }];
-          }
+          // Отфильтровываем старые теги "Все" и текущей категории, чтобы пересобрать список
+          const filteredTags = existing.filter(t => t.name !== 'Все' && t.name !== catTag);
+
+          // Добавляем "Все" первым, чтобы он отображался первым в UI, затем тег категории
+          const newTags = [{ name: 'Все' }, { name: catTag }, ...filteredTags];
+          model.info.meta.tags = newTags;
+          model.tags = newTags;
         });
 
         const newData = Array.isArray(data) ? list : { ...data, data: list };

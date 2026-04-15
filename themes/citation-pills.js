@@ -3,9 +3,9 @@
  * ======================================
  * Стилизует citation-ссылки как pill-бейджи.
  *
- * Шаг 1: Читает скрытую JSON-карту из HTML-комментария <!-- mts-cite-map:{...} -->
- *         Карта: { "N": "https://..." }
- * Шаг 2: Находит [N] в тексте и заменяет на кликабельный pill-бейдж
+ * Шаг 1: Читает скрытый <span id="mts-cite-map" data-map='{"1":"url",...}'>
+ *         который бэкенд вставляет в конец отчёта.
+ * Шаг 2: Находит [N] в тексте и заменяет на кликабельный pill-бейдж.
  */
 (function () {
   'use strict';
@@ -74,22 +74,28 @@
         white-space: nowrap !important;
         max-width: 130px !important;
       }
-      /* Скрываем HTML-комментарий с JSON-картой */
-      .mts-cite-map-node { display: none !important; }
     `;
     document.head.appendChild(style);
   }
 
-  // Карта: N (строка) → URL
-  const urlMap = {};
+  // Глобальный реестр уникальных URL для присвоения номеров
+  const uniqueUrls = [];
 
-  // Регекс для поиска [N] в тексте, например [1] [12]
-  const BRACKET_RE = /\[(\d+)\]/g;
+  function getCiteNumForUrl(href) {
+    if (!href) return '?';
+    // Нормализуем URL (убираем концевые слэши)
+    const norm = href.replace(/\/$/, '');
+    let idx = uniqueUrls.findIndex(u => u.replace(/\/$/, '') === norm);
+    if (idx === -1) {
+      uniqueUrls.push(href);
+      idx = uniqueUrls.length - 1;
+    }
+    return idx + 1;
+  }
 
   function getDomain(href) {
     try {
-      const u = new URL(href);
-      return u.hostname.replace(/^www\./, '');
+      return new URL(href).hostname.replace(/^www\./, '');
     } catch (e) {
       return '';
     }
@@ -107,54 +113,76 @@
   }
 
   /**
-   * Парсит HTML-комментарии вида <!-- mts-cite-map:{...} --> из DOM
-   * и заполняет urlMap данными из JSON.
+   * Превращает существующий <a> тег в pill-бейдж, если это похоже на цитату.
    */
-  function extractCiteMap(root) {
-    const walker = document.createTreeWalker(
-      root instanceof Document ? document.body : root,
-      NodeFilter.SHOW_COMMENT,
-      null
-    );
-    let node;
-    while ((node = walker.nextNode())) {
-      const text = node.nodeValue || '';
-      const match = text.match(/^\s*mts-cite-map:(\{[\s\S]*\})\s*$/);
-      if (match) {
-        try {
-          const parsed = JSON.parse(match[1]);
-          Object.assign(urlMap, parsed);
-          // Скрываем родительский элемент комментария если возможно
-          if (node.parentElement) {
-            node.parentElement.classList.add('mts-cite-map-node');
-          }
-        } catch (e) {
-          console.warn('[MTS] Failed to parse mts-cite-map JSON:', e);
+  function processAnchorTags(root) {
+    const searchRoot = root instanceof Document ? document.body : root;
+    if (!searchRoot) return;
+
+    const anchors = searchRoot.querySelectorAll('a:not(.mts-pill)');
+    anchors.forEach(a => {
+      // Игнорируем если уже обработан или внутри каких-то спец блоков
+      if (a.hasAttribute('data-mts-pill')) return;
+      if (a.closest('code, pre, .mts-pill')) return;
+
+      const text = a.textContent.trim();
+      const href = a.href;
+      if (!href || !href.startsWith('http')) return;
+
+      // Если текст ссылки это просто цифра (рендер от [1](url))
+      // Или если текст начинается с http (рендер от авто-ссылок)
+      // Или если текст пустой
+      const isNum = /^\d+$/.test(text);
+      const isUrl = text.startsWith('http');
+      
+      if (isNum || isUrl || text === '') {
+        const num = getCiteNumForUrl(href);
+        const label = getDomain(href);
+        
+        a.setAttribute('target', '_blank');
+        a.setAttribute('rel', 'noopener noreferrer');
+        a.setAttribute('title', href);
+        a.setAttribute('data-mts-pill', '1');
+        a.classList.add('mts-pill');
+        a.innerHTML = buildPillHTML(num, label);
+        
+        // Очищаем скобки вокруг бейджа, если LLM всё-таки их добавила, например: "Факт ( [1](url) )"
+        const prev = a.previousSibling;
+        if (prev && prev.nodeType === Node.TEXT_NODE) {
+          prev.textContent = prev.textContent.replace(/\(\s*$/, '');
+        }
+        const next = a.nextSibling;
+        if (next && next.nodeType === Node.TEXT_NODE) {
+          next.textContent = next.textContent.replace(/^\s*\)/, '');
         }
       }
-    }
+    });
   }
 
-  /** Заменяет [N] в текстовых узлах на pill-ссылки из urlMap */
-  function replaceBracketCitations(root) {
-    if (!Object.keys(urlMap).length) return;
+  // Регекс: ищет URL в скобках (https://...) или [https://...]
+  const RAW_URL_RE = /[\(\[]\s*(https?:\/\/[^\s\)\]]+)\s*[\)\]]/g;
+
+  /** Заменяет (url) и [url] в текстовых узлах на pill-ссылки */
+  function replaceTextNodeCitations(root) {
+    const searchRoot = root instanceof Document ? document.body : root;
+    if (!searchRoot) return;
 
     const walker = document.createTreeWalker(
-      root instanceof Document ? document.body : root,
+      searchRoot,
       NodeFilter.SHOW_TEXT,
       {
         acceptNode(node) {
           const parent = node.parentElement;
           if (!parent) return NodeFilter.FILTER_REJECT;
           const tag = parent.tagName.toLowerCase();
-          // Пропускаем <a>, <code>, <pre>, <script>, <style>
+          // Пропускаем теги, в которых замена не нужна
           if (['a', 'code', 'pre', 'script', 'style'].includes(tag)) {
             return NodeFilter.FILTER_REJECT;
           }
-          // Принимаем только если есть [N]
-          BRACKET_RE.lastIndex = 0;
-          if (!BRACKET_RE.test(node.textContent)) return NodeFilter.FILTER_REJECT;
-          BRACKET_RE.lastIndex = 0;
+          // Принимаем только если есть URL в скобках
+          RAW_URL_RE.lastIndex = 0;
+          if (!RAW_URL_RE.test(node.textContent)) return NodeFilter.FILTER_REJECT;
+          RAW_URL_RE.lastIndex = 0;
           return NodeFilter.FILTER_ACCEPT;
         }
       }
@@ -166,20 +194,24 @@
 
     for (const textNode of nodesToReplace) {
       const text = textNode.textContent;
-      // Разбиваем на части по [N]
-      const parts = text.split(/(\[\d+\])/);
+      
+      // Разбиваем текст по сырым URL в скобках
+      const parts = text.split(/([\(\[]\s*https?:\/\/[^\s\)\]]+\s*[\)\]])/i);
       if (parts.length <= 1) continue;
 
       let changed = false;
       const fragment = document.createDocumentFragment();
 
       for (const part of parts) {
-        BRACKET_RE.lastIndex = 0;
-        const mPart = part.match(/^\[(\d+)\]$/);
-        if (mPart && urlMap[mPart[1]]) {
-          const num = mPart[1];
-          const href = urlMap[num];
+        const mPart = part.match(/^[\(\[]\s*(https?:\/\/[^\s\)\]]+)\s*[\)\]]$/i);
+        if (mPart) {
+          let href = mPart[1];
+          // Убираем возможные знаки пунктуации в конце URL
+          href = href.replace(/[.,;:!?]+$/, '');
+
+          const num = getCiteNumForUrl(href);
           const label = getDomain(href);
+          
           const a = document.createElement('a');
           a.href = href;
           a.setAttribute('target', '_blank');
@@ -201,42 +233,36 @@
     }
   }
 
-  /** Полный проход: сначала читаем карту, потом заменяем [N] */
+  /** Полный проход */
   function scan(root) {
-    try { extractCiteMap(root); } catch (_) {}
-    try { replaceBracketCitations(root); } catch (_) {}
+    try { processAnchorTags(root); } catch (e) { console.error(e); }
+    try { replaceTextNodeCitations(root); } catch (e) { console.error(e); }
   }
 
   const obs = new MutationObserver(muts => {
     let needScan = false;
+
     for (const m of muts) {
       for (const n of m.addedNodes) {
-        if (n.nodeType === Node.COMMENT_NODE) {
-          // Новый комментарий — возможно карта
-          const text = n.nodeValue || '';
-          if (text.includes('mts-cite-map:')) {
-            try {
-              const match = text.match(/mts-cite-map:(\{[\s\S]*\})/);
-              if (match) Object.assign(urlMap, JSON.parse(match[1]));
-            } catch (_) {}
-            needScan = true;
-          }
-        } else if (n.nodeType === 1) {
-          // Новый элемент — ищем комментарии внутри
-          try { extractCiteMap(n); } catch (_) {}
+        if (n.nodeType === 1) { // Element
+          needScan = true;
+        } else if (n.nodeType === 3) { // Text Node
           needScan = true;
         }
       }
     }
+
     if (needScan) {
-      try { replaceBracketCitations(document.body); } catch (_) {}
+      // Ищем ближайший родительский контейнер сообщений или body, чтобы сузить область
+      try { processAnchorTags(document.body); } catch (_) {}
+      try { replaceTextNodeCitations(document.body); } catch (_) {}
     }
   });
 
   function init() {
     scan(document);
-    obs.observe(document.body, { childList: true, subtree: true });
-    console.log('[MTS] Citation pills v4 ready (square-bracket [N] mode)');
+    obs.observe(document.body, { childList: true, subtree: true, characterData: true });
+    console.log('[MTS] Citation pills v5 ready (Dynamic URL mode)');
   }
 
   if (document.readyState === 'loading') {
