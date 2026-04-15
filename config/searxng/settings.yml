@@ -1,4 +1,11 @@
-use_default_settings: true
+use_default_settings:
+  engines:
+    keep_only:
+      - google
+      - duckduckgo
+      - wikipedia
+      - bing
+      - brave
 
 server:
   secret_key: "mts-ai-workspace-searxng-2026-hackathon-key"
@@ -36,6 +43,11 @@ engines:
   - name: bing
     engine: bing
     shortcut: bi
+    disabled: false
+
+  - name: brave
+    engine: brave
+    shortcut: br
     disabled: false
 
 general:

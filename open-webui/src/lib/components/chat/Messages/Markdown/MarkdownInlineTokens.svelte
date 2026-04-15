@@ -207,26 +207,26 @@
 			box-shadow 0.15s ease,
 			transform 0.1s ease;
 		/* light mode */
-		background: rgba(99, 153, 255, 0.12);
-		color: #3b6fd4;
-		border: 1px solid rgba(99, 153, 255, 0.28);
+		background: #FF0032;
+		color: #FFFFFF;
+		border: 1px solid #FF0032;
 	}
 
 	:global(.dark) a.mts-cite-pill {
-		background: rgba(120, 170, 255, 0.13);
-		color: #8ab4ff;
-		border: 1px solid rgba(120, 170, 255, 0.22);
+		background: #FF0032;
+		color: #FFFFFF;
+		border: 1px solid #FF0032;
 	}
 
 	a.mts-cite-pill:hover {
-		background: rgba(99, 153, 255, 0.22);
-		box-shadow: 0 1px 6px rgba(99, 153, 255, 0.3);
+		background: #E6002D;
+		box-shadow: 0 1px 6px rgba(255, 0, 50, 0.40);
 		transform: translateY(-1px);
 	}
 
 	:global(.dark) a.mts-cite-pill:hover {
-		background: rgba(120, 170, 255, 0.22);
-		box-shadow: 0 1px 6px rgba(120, 170, 255, 0.22);
+		background: #E6002D;
+		box-shadow: 0 1px 6px rgba(255, 0, 50, 0.40);
 	}
 
 	a.mts-cite-pill:active {
@@ -243,12 +243,12 @@
 		font-size: 9.5px;
 		font-weight: 700;
 		flex-shrink: 0;
-		background: rgba(99, 153, 255, 0.2);
+		background: rgba(255, 255, 255, 0.25);
 		color: inherit;
 	}
 
 	:global(.dark) a.mts-cite-pill .mts-cite-pill__num {
-		background: rgba(120, 170, 255, 0.25);
+		background: rgba(255, 255, 255, 0.25);
 	}
 
 	a.mts-cite-pill .mts-cite-pill__label {

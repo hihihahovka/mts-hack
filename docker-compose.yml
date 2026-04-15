@@ -12,6 +12,8 @@ services:
     ports:
       - "${WEBUI_PORT:-8080}:8080"
     environment:
+      - VOICE_CHAT_PORT=${VOICE_CHAT_PORT:-9001}
+      - OLLAMA_BASE_URL=
       - OPENAI_API_BASE_URL=https://api.gpt.mws.ru/v1
       - OPENAI_API_KEY=${MWS_API_KEY}
       - RAG_EMBEDDING_ENGINE=openai
@@ -26,6 +28,7 @@ services:
       - AUDIO_STT_OPENAI_API_BASE_URL=http://whisper-api:9000/v1
       - AUDIO_STT_OPENAI_API_KEY=dummy
       - AUDIO_STT_MODEL=whisper-1
+      - AUDIO_STT_SUPPORTED_CONTENT_TYPES=audio/wav,audio/mpeg,audio/mp3,audio/ogg,audio/webm,audio/m4a,audio/mp4,audio/x-m4a,audio/flac,audio/*
       - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY:-supersecretkey123}
       - WEBUI_AUTH=${WEBUI_AUTH:-true}
       - ENABLE_SIGNUP=true
@@ -134,6 +137,26 @@ services:
       timeout: 5s
       retries: 10
       start_period: 120s
+
+  # ============================================================
+  # Voice Chat — Realtime Voice Assistant (WebSocket)
+  # ============================================================
+  voice-chat:
+    build:
+      context: ./services/voice_chat
+      dockerfile: Dockerfile
+    container_name: voice-chat-${ENV_NAME:-local}
+    ports:
+      - "${VOICE_CHAT_PORT:-9001}:9001"
+    environment:
+      - MWS_API_KEY=${MWS_API_KEY}
+      - MWS_API_BASE_URL=https://api.gpt.mws.ru/v1
+      - WHISPER_MODEL=small
+      - TTS_VOICE=ru-RU-DmitryNeural
+      - DEFAULT_MODEL=mws-gpt-alpha
+    networks:
+      - mts-net
+    restart: unless-stopped
 
   # ============================================================
   # Seed Service

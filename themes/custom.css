@@ -105,9 +105,9 @@
    Глобальное применение шрифта MTS Wide
    ============================================================ */
 :root {
-  --mts-font-ui:      'MTS Wide',   -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --mts-font-text:    'MTS Text',   -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --mts-font-compact: 'MTS Compact', 'MTS Wide', sans-serif;
+  --mts-font-ui:      'MTS Text', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --mts-font-text:    'MTS Text', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --mts-font-compact: 'MTS Text', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 
   /* Фирменные цвета МТС */
   --mts-red:          #FF0032;
@@ -224,16 +224,30 @@ select,
    Глобальные акцентные переопределения для обеих тем МТС
    ============================================================ */
 
-/* Scrollbar */
+/* Scrollbar — МТС красный */
+:root[data-theme^="mts"] ::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
 :root[data-theme^="mts"] ::-webkit-scrollbar-thumb {
-  background-color: var(--mts-neutral-600);
+  background-color: var(--mts-red);
   border-radius: 4px;
+  transition: background-color 0.2s ease;
+}
+:root[data-theme^="mts"] ::-webkit-scrollbar-thumb:hover {
+  background-color: var(--mts-red-light);
 }
 :root[data-theme^="mts"] ::-webkit-scrollbar-track {
   background-color: var(--mts-neutral-900);
+  border-radius: 4px;
 }
 :root[data-theme="mts-light"] ::-webkit-scrollbar-track {
   background-color: var(--mts-neutral-100);
+}
+/* Firefox */
+:root[data-theme^="mts"] * {
+  scrollbar-color: var(--mts-red) transparent;
+  scrollbar-width: thin;
 }
 
 /* Выделение текста */
@@ -274,18 +288,8 @@ select,
   box-shadow: 0 0 0 3px rgba(255, 0, 50, 0.18) !important;
 }
 
-/* Тонкая красная полоска-акцент сверху (brand bar) */
-:root[data-theme^="mts"] body::before {
-  content: '';
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 3px;
-  background: linear-gradient(90deg, #FF0032 0%, #FF3358 50%, #FF0032 100%);
-  z-index: 999999;
-  pointer-events: none;
-}
+/* Тонкая красная полоска-акцент сверху (brand bar) — отключена */
+/* :root[data-theme^="mts"] body::before { ... } */
 
 
 /* ============================================================
@@ -318,7 +322,7 @@ select,
   max-width: 90vw;
   height: 100vh;
   z-index: 99999;
-  font-family: var(--mts-font-ui, 'MTS Wide', -apple-system, sans-serif);
+  font-family: var(--mts-font-ui, 'MTS Text', -apple-system, sans-serif);
   background: #111111;
   border-left: 1px solid rgba(255, 255, 255, 0.08);
   box-shadow: -8px 0 48px rgba(0, 0, 0, 0.7);
@@ -370,7 +374,7 @@ select,
   color: #FFFFFF;
   margin: 0;
   letter-spacing: -0.2px;
-  font-family: var(--mts-font-ui, 'MTS Wide', sans-serif);
+  font-family: var(--mts-font-ui, 'MTS Text', sans-serif);
 }
 :root:not(.dark) #mts-appearance-panel .panel-header h2 {
   color: #111111;
@@ -432,7 +436,7 @@ select,
   letter-spacing: 2px;
   color: rgba(255, 255, 255, 0.35);
   margin-bottom: 14px;
-  font-family: var(--mts-font-compact, 'MTS Compact', 'MTS Wide', sans-serif);
+  font-family: var(--mts-font-compact, 'MTS Text', sans-serif);
 }
 :root:not(.dark) #mts-appearance-panel .section-label {
   color: rgba(0, 0, 0, 0.38);
@@ -459,7 +463,7 @@ select,
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;
-  font-family: var(--mts-font-ui, 'MTS Wide', sans-serif);
+  font-family: var(--mts-font-ui, 'MTS Text', sans-serif);
 }
 #mts-appearance-panel .mode-btn:hover {
   background: rgba(255, 255, 255, 0.07);
@@ -517,7 +521,7 @@ select,
   transition: all 0.2s ease;
   text-align: left;
   position: relative;
-  font-family: var(--mts-font-ui, 'MTS Wide', sans-serif);
+  font-family: var(--mts-font-ui, 'MTS Text', sans-serif);
 }
 #mts-appearance-panel .accent-btn:hover {
   background: rgba(255, 255, 255, 0.05);
@@ -576,4 +580,119 @@ select,
 /* --- Profile dropdown menu item --- */
 #mts-appearance-menu-item {
   transition: background 0.15s ease;
+}
+
+/* ============================================================
+   МТС Красный — лаконичные акценты в главном интерфейсе
+   ============================================================ */
+
+/* 1. Граница сайдбара — отключена */
+/* :root[data-theme^="mts"] #sidebar { border-right: ... } */
+
+/* 2. Кнопка отправки сообщения — красная */
+:root[data-theme^="mts"] button[aria-label="Send message"],
+:root[data-theme^="mts"] button[aria-label="Отправить сообщение"] {
+  background-color: var(--mts-red) !important;
+  color: #fff !important;
+  border-radius: 50% !important;
+  transition: background-color 0.2s ease, box-shadow 0.2s ease !important;
+}
+:root[data-theme^="mts"] button[aria-label="Send message"]:hover,
+:root[data-theme^="mts"] button[aria-label="Отправить сообщение"]:hover {
+  background-color: var(--mts-red-dark) !important;
+  box-shadow: 0 0 0 4px rgba(255, 0, 50, 0.2) !important;
+}
+
+/* 3. Активный чат в сайдбаре — красная левая полоска */
+:root[data-theme^="mts"] #sidebar a[aria-current="page"],
+:root[data-theme^="mts"] #sidebar [data-active="true"] {
+  border-left: 3px solid var(--mts-red) !important;
+  padding-left: calc(0.5rem - 3px) !important;
+}
+
+/* 4. Кнопка «Новый чат» — красная при наведении */
+:root[data-theme^="mts"] #sidebar-new-chat-button:hover {
+  color: var(--mts-red) !important;
+}
+
+/* 5. Логотип МТС — строго квадратный, без скруглений */
+:root[data-theme^="mts"] #sidebar img[src*="favicon"],
+:root[data-theme^="mts"] #sidebar img[alt*="logo"],
+img[src*="favicon"],
+img[src*="splash"] {
+  border-radius: 0 !important;
+  aspect-ratio: 1 / 1;
+  object-fit: contain;
+}
+
+/* 6. Поле ввода в фокусе — стандартный стиль (красный outline отключён) */
+/* :root[data-theme^="mts"] div[contenteditable]:focus { ... } */
+
+/* ============================================================
+   Аватары моделей — квадратные (убираем rounded-full)
+   ============================================================ */
+
+/* Все img с классом rounded-full — квадратные (модели в дропдауне, чате, шапке) */
+img.rounded-full,
+img[class*="rounded"] {
+  border-radius: 0 !important;
+  aspect-ratio: 1 / 1 !important;
+  object-fit: contain !important;
+}
+
+/* Обёртки-контейнеры с img внутри — тоже без скруглений */
+div.rounded-full:has(> img),
+span.rounded-full:has(> img),
+button.rounded-full:has(> img) {
+  border-radius: 0 !important;
+}
+
+/* Дополнительно: любой img внутри элемента с rounded-full */
+.rounded-full > img {
+  border-radius: 0 !important;
+  aspect-ratio: 1 / 1 !important;
+  object-fit: contain !important;
+}
+
+/* ============================================================
+   Кнопка остановки генерации — красный МТС
+   ============================================================ */
+:root[data-theme^="mts"] button[aria-label="Stop"],
+:root[data-theme^="mts"] button[aria-label="Стоп"],
+:root[data-theme^="mts"] button[aria-label="Stop Response"],
+:root[data-theme^="mts"] button[aria-label="Stop Generation"] {
+  background-color: var(--mts-red) !important;
+  border-color: var(--mts-red) !important;
+  color: #fff !important;
+  transition: background-color 0.2s ease, box-shadow 0.2s ease !important;
+}
+:root[data-theme^="mts"] button[aria-label="Stop"]:hover,
+:root[data-theme^="mts"] button[aria-label="Стоп"]:hover,
+:root[data-theme^="mts"] button[aria-label="Stop Response"]:hover,
+:root[data-theme^="mts"] button[aria-label="Stop Generation"]:hover {
+  background-color: var(--mts-red-dark) !important;
+  box-shadow: 0 0 0 4px rgba(255, 0, 50, 0.25) !important;
+}
+/* Иконка внутри кнопки — белая */
+:root[data-theme^="mts"] button[aria-label="Stop"] svg,
+:root[data-theme^="mts"] button[aria-label="Stop Response"] svg,
+:root[data-theme^="mts"] button[aria-label="Stop Generation"] svg {
+  fill: #fff !important;
+  color: #fff !important;
+}
+
+/* ============================================================
+   Отступ после блока рассуждений (thinking/reasoning)
+   ============================================================ */
+
+/* Пустая строка после коллапсибл-блока рассуждений */
+details {
+  margin-bottom: 1.25rem !important;
+}
+
+/* На случай если блок рендерится не через <details> а через div */
+[class*="thinking"],
+[class*="reasoning"],
+[class*="thought"] {
+  margin-bottom: 1.25rem !important;
 }

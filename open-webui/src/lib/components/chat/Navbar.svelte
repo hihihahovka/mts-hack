@@ -281,6 +281,10 @@
 							</div>
 						</UserMenu>
 					{/if}
+					
+					<div class="ml-2 flex items-center pr-2">
+						<img src="/static/favicon.png" class="size-6 rounded-full" alt="MTS Logo" />
+					</div>
 				</div>
 			</div>
 		</div>
