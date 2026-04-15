@@ -34,19 +34,22 @@
         top: -1px !important;
         font-family: 'MTS Text', -apple-system, BlinkMacSystemFont, sans-serif !important;
         transition: background 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease !important;
-        background: #FF0032 !important;
-        color: #FFFFFF !important;
+        background: rgba(255, 0, 50, 0.12) !important;
+        color: #FF0032 !important;
         border: none !important;
       }
       .dark a.mts-pill {
-        background: #FF0032 !important;
-        color: #FFFFFF !important;
+        background: rgba(255, 0, 50, 0.2) !important;
+        color: #FF0032 !important;
         border: none !important;
       }
       a.mts-pill:hover {
-        background: #E6002D !important;
-        box-shadow: 0 2px 6px rgba(255, 0, 50, 0.40) !important;
+        background: rgba(255, 0, 50, 0.22) !important;
+        box-shadow: none !important;
         transform: translateY(-1px) !important;
+      }
+      .dark a.mts-pill:hover {
+        background: rgba(255, 0, 50, 0.3) !important;
       }
       a.mts-pill:active {
         transform: translateY(0) !important;
@@ -61,11 +64,11 @@
         font-size: 10px !important;
         font-weight: 700 !important;
         flex-shrink: 0 !important;
-        background: rgba(255, 255, 255, 0.25) !important;
+        background: #FF0032 !important;
         color: #FFFFFF !important;
       }
       .dark a.mts-pill .mts-pill-num {
-        background: rgba(255, 255, 255, 0.25) !important;
+        background: #FF0032 !important;
       }
       a.mts-pill .mts-pill-label {
         overflow: hidden !important;
