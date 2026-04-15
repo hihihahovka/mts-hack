@@ -111,6 +111,13 @@ class Filter:
         if body.get("metadata", {}).get("task") == "MODEL_AUTOROUTING":
             return body
 
+        # Не перероутим, если последнее сообщение — результат tool-вызова
+        # (OpenWebUI делает второй LLM-запрос с role="tool" для синтеза результатов тула)
+        last_msg_role = messages[-1].get("role", "") if messages else ""
+        if last_msg_role == "tool":
+            # Уже идёт синтез результатов тула — не трогаем модель, просто выходим
+            return body
+
         original_model = body.get("model", "")
 
         # Читаем режим авторутинга из HTTP-заголовка (X-MTS-Routing-Mode)
@@ -238,15 +245,18 @@ class Filter:
             if getattr(self.valves, "research_tool_id", "deep_research_tool") not in body["tool_ids"]:
                 body["tool_ids"].append(getattr(self.valves, "research_tool_id", "deep_research_tool"))
 
-            non_text_keywords = ["image", "whisper", "vl", "audio", "vision", "embedding"]
-            is_text_model = original_model and not any(k in original_model.lower() for k in non_text_keywords)
+            # Всегда переключаемся на текстовую модель для deep research.
+            # Image / vision / audio модели не должны получать этот запрос —
+            # иначе после синтеза результатов тула они пытаются сгенерировать изображение.
+            non_text_keywords = ["image", "whisper", "vl", "audio", "vision", "embedding", "gen_pipe"]
+            is_non_text_model = original_model and any(k in original_model.lower() for k in non_text_keywords)
 
-            if is_text_model:
+            if is_non_text_model:
+                routed_id = model_tier["text"]
+                routing_reason = "Запрос на глубокий поиск (Deep Research Tool + Смена с нетекстовой модели)"
+            else:
                 routed_id = original_model
                 routing_reason = "Запрос на глубокий поиск (Deep Research Tool + Текущая текстовая модель)"
-            else:
-                routed_id = model_tier["text"]
-                routing_reason = "Запрос на глубокий поиск (Deep Research Tool + Смена на текстовую модель)"
 
         elif autorouting_mode == "off":
             self._routing_reason = "Автопереключение выключено"

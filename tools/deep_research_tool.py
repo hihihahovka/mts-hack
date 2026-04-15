@@ -1287,12 +1287,8 @@ class Tools:
                     "data": {"content": sources_text}
                 })
 
-            await self.emit_status(
-                __event_emitter__,
-                "✅ Исследование завершено!",
-                True
-            )
-            return "Полный отчёт с источниками уже показан пользователю выше. Ответь ТОЛЬКО: 'Исследование завершено.' Ничего больше не добавляй."
+            await self.emit_status(__event_emitter__, "", True)
+            return ""
 
         except Exception as e:
             logger.error(f"Synthesis failed: {e}")

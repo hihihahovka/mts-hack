@@ -1,265 +1,299 @@
 /* ============================================================
-   MTS AI Workspace — Custom Themes
+   MTS AI Workspace — Фирменный стиль МТС
    ============================================================
-   7 mono-color palettes applied via data-theme attribute on <html>.
-   Each theme redefines OpenWebUI's --color-gray-* scale with
-   tinted shades + sets accent/highlight colors.
-   
-   Themes: indigo, emerald, amethyst, ruby, amber, graphite, aurora
+   Фирменные цвета МТС:
+     Красный:    #FF0032  (основной бренд-цвет)
+     Чёрный:    #000000
+     Белый:     #FFFFFF
+     Тёмный фон: #111111 / #1A1A1A
+
+   Шрифты МТС (ParaType, 2022):
+     MTS Wide   — основной UI-шрифт (Regular / Medium / Bold / Black)
+     MTS Text   — текстовый (Regular / Medium / Bold / Black)
+     MTS Compact Bold — компактный заголовочный
+
+   Темы: mts-dark (по умолчанию тёмная), mts-light (светлая)
    ============================================================ */
 
-/* ─────────────────────────────────────────────
-   Theme 1: Indigo — Deep blue-violet tones
-   ───────────────────────────────────────────── */
-:root[data-theme="indigo"] {
-  --color-gray-50:  #eef2ff;
-  --color-gray-100: #e0e7ff;
-  --color-gray-200: #c7d2fe;
-  --color-gray-300: #a5b4fc;
-  --color-gray-400: #818cf8;
-  --color-gray-500: #6366f1;
-  --color-gray-600: #4f46e5;
-  --color-gray-700: #4338ca;
-  --color-gray-800: #312e81;
-  --color-gray-850: #282560;
-  --color-gray-900: #1e1b4b;
-  --color-gray-950: #150f3a;
-  --theme-color: #6366f1;
+
+/* ============================================================
+   @font-face — MTS Wide
+   ============================================================ */
+@font-face {
+  font-family: 'MTS Wide';
+  src: url('/static/fonts/MTSWide-Regular.woff2') format('woff2'),
+       url('/static/fonts/MTSWide-Regular.woff')  format('woff');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'MTS Wide';
+  src: url('/static/fonts/MTSWide-Medium.woff2') format('woff2'),
+       url('/static/fonts/MTSWide-Medium.woff')  format('woff');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'MTS Wide';
+  src: url('/static/fonts/MTSWide-Bold.woff2') format('woff2'),
+       url('/static/fonts/MTSWide-Bold.woff')  format('woff');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'MTS Wide';
+  src: url('/static/fonts/MTSWide-Black.woff2') format('woff2'),
+       url('/static/fonts/MTSWide-Black.woff')  format('woff');
+  font-weight: 900;
+  font-style: normal;
+  font-display: swap;
 }
 
-:root[data-theme="indigo"] button.primary,
-:root[data-theme="indigo"] button[type="submit"] {
-  background-color: #6366f1 !important;
+/* ============================================================
+   @font-face — MTS Text
+   ============================================================ */
+@font-face {
+  font-family: 'MTS Text';
+  src: url('/static/fonts/MTSText-Regular.woff2') format('woff2'),
+       url('/static/fonts/MTSText-Regular.woff')  format('woff');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
 }
-:root[data-theme="indigo"] button.primary:hover,
-:root[data-theme="indigo"] button[type="submit"]:hover {
-  background-color: #4f46e5 !important;
+@font-face {
+  font-family: 'MTS Text';
+  src: url('/static/fonts/MTSText-Medium.woff2') format('woff2'),
+       url('/static/fonts/MTSText-Medium.woff')  format('woff');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
 }
-
-/* ─────────────────────────────────────────────
-   Theme 2: Emerald — Rich green tones
-   ───────────────────────────────────────────── */
-:root[data-theme="emerald"] {
-  --color-gray-50:  #ecfdf5;
-  --color-gray-100: #d1fae5;
-  --color-gray-200: #a7f3d0;
-  --color-gray-300: #6ee7b7;
-  --color-gray-400: #34d399;
-  --color-gray-500: #10b981;
-  --color-gray-600: #059669;
-  --color-gray-700: #047857;
-  --color-gray-800: #064e3b;
-  --color-gray-850: #053f30;
-  --color-gray-900: #042f24;
-  --color-gray-950: #021f18;
-  --theme-color: #10b981;
+@font-face {
+  font-family: 'MTS Text';
+  src: url('/static/fonts/MTSText-Bold.woff2') format('woff2'),
+       url('/static/fonts/MTSText-Bold.woff')  format('woff');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
 }
-
-:root[data-theme="emerald"] button.primary,
-:root[data-theme="emerald"] button[type="submit"] {
-  background-color: #10b981 !important;
-}
-:root[data-theme="emerald"] button.primary:hover,
-:root[data-theme="emerald"] button[type="submit"]:hover {
-  background-color: #059669 !important;
-}
-
-/* ─────────────────────────────────────────────
-   Theme 3: Amethyst — Purple-violet mystique
-   ───────────────────────────────────────────── */
-:root[data-theme="amethyst"] {
-  --color-gray-50:  #faf5ff;
-  --color-gray-100: #f3e8ff;
-  --color-gray-200: #e9d5ff;
-  --color-gray-300: #d8b4fe;
-  --color-gray-400: #c084fc;
-  --color-gray-500: #a855f7;
-  --color-gray-600: #9333ea;
-  --color-gray-700: #7e22ce;
-  --color-gray-800: #581c87;
-  --color-gray-850: #4a1772;
-  --color-gray-900: #3b0f5e;
-  --color-gray-950: #2a0845;
-  --theme-color: #a855f7;
+@font-face {
+  font-family: 'MTS Text';
+  src: url('/static/fonts/MTSText-Black.woff2') format('woff2'),
+       url('/static/fonts/MTSText-Black.woff')  format('woff');
+  font-weight: 900;
+  font-style: normal;
+  font-display: swap;
 }
 
-:root[data-theme="amethyst"] button.primary,
-:root[data-theme="amethyst"] button[type="submit"] {
-  background-color: #a855f7 !important;
-}
-:root[data-theme="amethyst"] button.primary:hover,
-:root[data-theme="amethyst"] button[type="submit"]:hover {
-  background-color: #9333ea !important;
-}
-
-/* ─────────────────────────────────────────────
-   Theme 4: Ruby — Deep red warmth
-   ───────────────────────────────────────────── */
-:root[data-theme="ruby"] {
-  --color-gray-50:  #fff1f2;
-  --color-gray-100: #ffe4e6;
-  --color-gray-200: #fecdd3;
-  --color-gray-300: #fda4af;
-  --color-gray-400: #fb7185;
-  --color-gray-500: #f43f5e;
-  --color-gray-600: #e11d48;
-  --color-gray-700: #be123c;
-  --color-gray-800: #881337;
-  --color-gray-850: #6e0f2d;
-  --color-gray-900: #550b22;
-  --color-gray-950: #3d0717;
-  --theme-color: #f43f5e;
-}
-
-:root[data-theme="ruby"] button.primary,
-:root[data-theme="ruby"] button[type="submit"] {
-  background-color: #f43f5e !important;
-}
-:root[data-theme="ruby"] button.primary:hover,
-:root[data-theme="ruby"] button[type="submit"]:hover {
-  background-color: #e11d48 !important;
-}
-
-/* ─────────────────────────────────────────────
-   Theme 5: Amber — Warm golden glow
-   ───────────────────────────────────────────── */
-:root[data-theme="amber"] {
-  --color-gray-50:  #fffbeb;
-  --color-gray-100: #fef3c7;
-  --color-gray-200: #fde68a;
-  --color-gray-300: #fcd34d;
-  --color-gray-400: #fbbf24;
-  --color-gray-500: #f59e0b;
-  --color-gray-600: #d97706;
-  --color-gray-700: #b45309;
-  --color-gray-800: #78350f;
-  --color-gray-850: #612b0c;
-  --color-gray-900: #4a2008;
-  --color-gray-950: #331505;
-  --theme-color: #f59e0b;
-}
-
-:root[data-theme="amber"] button.primary,
-:root[data-theme="amber"] button[type="submit"] {
-  background-color: #f59e0b !important;
-  color: #1a1a1a !important;
-}
-:root[data-theme="amber"] button.primary:hover,
-:root[data-theme="amber"] button[type="submit"]:hover {
-  background-color: #d97706 !important;
-}
-
-/* ─────────────────────────────────────────────
-   Theme 6: Graphite — Cool neutral monochrome
-   ───────────────────────────────────────────── */
-:root[data-theme="graphite"] {
-  --color-gray-50:  #f5f5f5;
-  --color-gray-100: #e5e5e5;
-  --color-gray-200: #cccccc;
-  --color-gray-300: #a3a3a3;
-  --color-gray-400: #737373;
-  --color-gray-500: #525252;
-  --color-gray-600: #404040;
-  --color-gray-700: #333333;
-  --color-gray-800: #262626;
-  --color-gray-850: #1f1f1f;
-  --color-gray-900: #171717;
-  --color-gray-950: #0f0f0f;
-  --theme-color: #737373;
-}
-
-:root[data-theme="graphite"] button.primary,
-:root[data-theme="graphite"] button[type="submit"] {
-  background-color: #525252 !important;
-}
-:root[data-theme="graphite"] button.primary:hover,
-:root[data-theme="graphite"] button[type="submit"]:hover {
-  background-color: #404040 !important;
-}
-
-/* ─────────────────────────────────────────────
-   Theme 7: Aurora — Teal-cyan northern lights
-   ───────────────────────────────────────────── */
-:root[data-theme="aurora"] {
-  --color-gray-50:  #ecfeff;
-  --color-gray-100: #cffafe;
-  --color-gray-200: #a5f3fc;
-  --color-gray-300: #67e8f9;
-  --color-gray-400: #22d3ee;
-  --color-gray-500: #06b6d4;
-  --color-gray-600: #0891b2;
-  --color-gray-700: #0e7490;
-  --color-gray-800: #155e75;
-  --color-gray-850: #124d61;
-  --color-gray-900: #0f3d4e;
-  --color-gray-950: #0a2c38;
-  --theme-color: #06b6d4;
-}
-
-:root[data-theme="aurora"] button.primary,
-:root[data-theme="aurora"] button[type="submit"] {
-  background-color: #06b6d4 !important;
-}
-:root[data-theme="aurora"] button.primary:hover,
-:root[data-theme="aurora"] button[type="submit"]:hover {
-  background-color: #0891b2 !important;
+/* ============================================================
+   @font-face — MTS Compact Bold
+   ============================================================ */
+@font-face {
+  font-family: 'MTS Compact';
+  src: url('/static/fonts/MTSCompact-Bold.woff2') format('woff2'),
+       url('/static/fonts/MTSCompact-Bold.woff')  format('woff');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
 }
 
 
 /* ============================================================
-   Global accent overrides for ALL custom themes
+   Глобальное применение шрифта MTS Wide
+   ============================================================ */
+:root {
+  --mts-font-ui:      'MTS Text', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --mts-font-text:    'MTS Text', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --mts-font-compact: 'MTS Text', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+
+  /* Фирменные цвета МТС */
+  --mts-red:          #FF0032;
+  --mts-red-dark:     #CC0028;
+  --mts-red-darker:   #99001E;
+  --mts-red-light:    #FF3358;
+  --mts-red-pale:     rgba(255, 0, 50, 0.12);
+  --mts-red-glow:     rgba(255, 0, 50, 0.25);
+
+  --mts-black:        #000000;
+  --mts-white:        #FFFFFF;
+
+  /* Нейтральная шкала (для тёмной темы) */
+  --mts-neutral-950:  #0A0A0A;
+  --mts-neutral-900:  #111111;
+  --mts-neutral-850:  #161616;
+  --mts-neutral-800:  #1C1C1C;
+  --mts-neutral-700:  #2A2A2A;
+  --mts-neutral-600:  #3A3A3A;
+  --mts-neutral-500:  #525252;
+  --mts-neutral-400:  #737373;
+  --mts-neutral-300:  #A3A3A3;
+  --mts-neutral-200:  #D4D4D4;
+  --mts-neutral-100:  #F0F0F0;
+  --mts-neutral-50:   #F8F8F8;
+}
+
+/* Применяем MTS Wide как основной шрифт везде */
+body,
+button,
+input,
+textarea,
+select,
+[class*="font-"] {
+  font-family: var(--mts-font-ui) !important;
+}
+
+/* Длинный текст (сообщения чата, markdown) */
+.prose,
+.markdown,
+[class*="prose"] {
+  font-family: var(--mts-font-text) !important;
+}
+
+
+/* ============================================================
+   Тема: MTS Dark  (data-theme="mts-dark")
+   ============================================================ */
+:root[data-theme="mts-dark"] {
+  --color-gray-50:   #F8F8F8;
+  --color-gray-100:  #F0F0F0;
+  --color-gray-200:  #D4D4D4;
+  --color-gray-300:  #A3A3A3;
+  --color-gray-400:  #737373;
+  --color-gray-500:  #525252;
+  --color-gray-600:  #3A3A3A;
+  --color-gray-700:  #2A2A2A;
+  --color-gray-800:  #1C1C1C;
+  --color-gray-850:  #161616;
+  --color-gray-900:  #111111;
+  --color-gray-950:  #0A0A0A;
+  --theme-color:     #FF0032;
+}
+
+/* Акцент-кнопки в тёмной теме МТС */
+:root[data-theme="mts-dark"] button.primary,
+:root[data-theme="mts-dark"] button[type="submit"] {
+  background-color: #FF0032 !important;
+  color: #fff !important;
+}
+:root[data-theme="mts-dark"] button.primary:hover,
+:root[data-theme="mts-dark"] button[type="submit"]:hover {
+  background-color: #CC0028 !important;
+}
+
+/* Красный акцент для активных/выбранных элементов */
+:root[data-theme="mts-dark"] [class*="active"],
+:root[data-theme="mts-dark"] [aria-selected="true"] {
+  border-color: rgba(255, 0, 50, 0.4) !important;
+}
+
+
+/* ============================================================
+   Тема: MTS Light  (data-theme="mts-light")
+   ============================================================ */
+:root[data-theme="mts-light"] {
+  --color-gray-50:   #0A0A0A;
+  --color-gray-100:  #111111;
+  --color-gray-200:  #1C1C1C;
+  --color-gray-300:  #2A2A2A;
+  --color-gray-400:  #525252;
+  --color-gray-500:  #737373;
+  --color-gray-600:  #A3A3A3;
+  --color-gray-700:  #D4D4D4;
+  --color-gray-800:  #EBEBEB;
+  --color-gray-850:  #F0F0F0;
+  --color-gray-900:  #F5F5F5;
+  --color-gray-950:  #FFFFFF;
+  --theme-color:     #FF0032;
+}
+
+:root[data-theme="mts-light"] button.primary,
+:root[data-theme="mts-light"] button[type="submit"] {
+  background-color: #FF0032 !important;
+  color: #fff !important;
+}
+:root[data-theme="mts-light"] button.primary:hover,
+:root[data-theme="mts-light"] button[type="submit"]:hover {
+  background-color: #CC0028 !important;
+}
+
+
+/* ============================================================
+   Глобальные акцентные переопределения для обеих тем МТС
    ============================================================ */
 
-/* Scrollbar styling for themed mode */
-:root[data-theme] ::-webkit-scrollbar-thumb {
-  background-color: var(--color-gray-600);
+/* Scrollbar — МТС красный */
+:root[data-theme^="mts"] ::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+:root[data-theme^="mts"] ::-webkit-scrollbar-thumb {
+  background-color: var(--mts-red);
+  border-radius: 4px;
+  transition: background-color 0.2s ease;
+}
+:root[data-theme^="mts"] ::-webkit-scrollbar-thumb:hover {
+  background-color: var(--mts-red-light);
+}
+:root[data-theme^="mts"] ::-webkit-scrollbar-track {
+  background-color: var(--mts-neutral-900);
   border-radius: 4px;
 }
-:root[data-theme] ::-webkit-scrollbar-track {
-  background-color: var(--color-gray-900);
+:root[data-theme="mts-light"] ::-webkit-scrollbar-track {
+  background-color: var(--mts-neutral-100);
+}
+/* Firefox */
+:root[data-theme^="mts"] * {
+  scrollbar-color: var(--mts-red) transparent;
+  scrollbar-width: thin;
 }
 
-/* Selection color */
-:root[data-theme] ::selection {
-  background-color: var(--theme-color);
+/* Выделение текста */
+:root[data-theme^="mts"] ::selection {
+  background-color: var(--mts-red);
   color: #fff;
 }
 
-/* Links */
-:root[data-theme] a:not([class]) {
-  color: var(--color-gray-300);
+/* Ссылки */
+:root[data-theme^="mts"] a:not([class]) {
+  color: var(--mts-red-light);
+  text-decoration: none;
 }
-:root[data-theme] a:not([class]):hover {
-  color: var(--theme-color);
+:root[data-theme^="mts"] a:not([class]):hover {
+  color: var(--mts-red);
+  text-decoration: underline;
+}
+
+/* Нейтральный фон основной области чата */
+:root.dark[data-theme^="mts"] .app > div {
+  background-color: #111111 !important;
+}
+:root.dark[data-theme^="mts"] .app > div::-webkit-scrollbar-track {
+  background-color: #111111;
 }
 
 
 /* ============================================================
-   Central chat area — neutral dark in dark mode
-   ============================================================
-   Custom themes tint --color-gray-* globally, which makes the
-   sidebar look great but also tints the main chat area.
-   We force the central content wrapper to neutral-dark so only
-   the sidebar keeps the accent.
+   Красная подсветка — активные состояния и фокус
    ============================================================ */
-
-/* Main app outer wrapper — neutral dark bg */
-:root.dark[data-theme] .app > div {
-  background-color: #171717 !important;
+:root[data-theme^="mts"] *:focus-visible {
+  outline-color: var(--mts-red) !important;
 }
 
-/* Scrollbar track should also stay neutral in the main area */
-:root.dark[data-theme] .app > div::-webkit-scrollbar-track {
-  background-color: #171717;
+:root[data-theme^="mts"] input:focus,
+:root[data-theme^="mts"] textarea:focus {
+  border-color: var(--mts-red) !important;
+  box-shadow: 0 0 0 3px rgba(255, 0, 50, 0.18) !important;
 }
+
+/* Тонкая красная полоска-акцент сверху (brand bar) — отключена */
+/* :root[data-theme^="mts"] body::before { ... } */
 
 
 /* ============================================================
-   Appearance Panel  (replaces old floating palette widget)
-   ============================================================
-   Slide-over panel opened from the profile dropdown menu.
-   Contains Theme mode (Light / Dark / System) and Colour accent
-   selectors.
+   Панель внешнего вида — Appearance Panel
    ============================================================ */
 
 /* --- Overlay backdrop --- */
@@ -267,9 +301,9 @@
   position: fixed;
   inset: 0;
   z-index: 99998;
-  background: rgba(0, 0, 0, 0.45);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
   opacity: 0;
   visibility: hidden;
   transition: opacity 0.3s ease, visibility 0.3s ease;
@@ -288,12 +322,10 @@
   max-width: 90vw;
   height: 100vh;
   z-index: 99999;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-  background: rgba(24, 24, 32, 0.97);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
+  font-family: var(--mts-font-ui, 'MTS Text', -apple-system, sans-serif);
+  background: #111111;
   border-left: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: -8px 0 40px rgba(0, 0, 0, 0.5);
+  box-shadow: -8px 0 48px rgba(0, 0, 0, 0.7);
   transform: translateX(100%);
   transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
   overflow-y: auto;
@@ -304,14 +336,24 @@
   transform: translateX(0);
 }
 
-/* Light mode variant */
+/* Красная полоска сверху панели */
+#mts-appearance-panel::before {
+  content: '';
+  display: block;
+  height: 3px;
+  background: #FF0032;
+  width: 100%;
+  flex-shrink: 0;
+}
+
+/* Light mode panel */
 :root:not(.dark) #mts-appearance-panel {
-  background: rgba(255, 255, 255, 0.97);
+  background: #FFFFFF;
   border-left: 1px solid rgba(0, 0, 0, 0.08);
-  box-shadow: -8px 0 40px rgba(0, 0, 0, 0.12);
+  box-shadow: -8px 0 40px rgba(0, 0, 0, 0.15);
 }
 :root:not(.dark) #mts-appearance-overlay {
-  background: rgba(0, 0, 0, 0.25);
+  background: rgba(0, 0, 0, 0.3);
 }
 
 /* --- Panel header --- */
@@ -320,7 +362,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 20px 24px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
 }
 :root:not(.dark) #mts-appearance-panel .panel-header {
   border-bottom: 1px solid rgba(0, 0, 0, 0.08);
@@ -329,21 +371,36 @@
 #mts-appearance-panel .panel-header h2 {
   font-size: 18px;
   font-weight: 700;
-  color: #fff;
+  color: #FFFFFF;
   margin: 0;
-  letter-spacing: -0.3px;
+  letter-spacing: -0.2px;
+  font-family: var(--mts-font-ui, 'MTS Text', sans-serif);
 }
 :root:not(.dark) #mts-appearance-panel .panel-header h2 {
-  color: #111;
+  color: #111111;
+}
+
+/* МТС лого/брендинг в шапке панели */
+#mts-appearance-panel .panel-header h2::before {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  background: #FF0032;
+  border-radius: 2px;
+  margin-right: 10px;
+  vertical-align: middle;
+  position: relative;
+  top: -1px;
 }
 
 #mts-appearance-panel .panel-close {
   width: 34px;
   height: 34px;
   border: none;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.08);
-  color: rgba(255, 255, 255, 0.6);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.07);
+  color: rgba(255, 255, 255, 0.55);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -351,16 +408,16 @@
   transition: all 0.2s ease;
 }
 #mts-appearance-panel .panel-close:hover {
-  background: rgba(255, 255, 255, 0.15);
-  color: #fff;
+  background: rgba(255, 0, 50, 0.15);
+  color: #FF0032;
 }
 :root:not(.dark) #mts-appearance-panel .panel-close {
   background: rgba(0, 0, 0, 0.05);
-  color: rgba(0, 0, 0, 0.5);
+  color: rgba(0, 0, 0, 0.45);
 }
 :root:not(.dark) #mts-appearance-panel .panel-close:hover {
-  background: rgba(0, 0, 0, 0.1);
-  color: #111;
+  background: rgba(255, 0, 50, 0.1);
+  color: #FF0032;
 }
 
 /* --- Section --- */
@@ -373,15 +430,16 @@
 }
 
 #mts-appearance-panel .section-label {
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 10px;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 1.5px;
-  color: rgba(255, 255, 255, 0.4);
+  letter-spacing: 2px;
+  color: rgba(255, 255, 255, 0.35);
   margin-bottom: 14px;
+  font-family: var(--mts-font-compact, 'MTS Text', sans-serif);
 }
 :root:not(.dark) #mts-appearance-panel .section-label {
-  color: rgba(0, 0, 0, 0.4);
+  color: rgba(0, 0, 0, 0.38);
 }
 
 /* --- Mode selector --- */
@@ -397,41 +455,42 @@
   align-items: center;
   gap: 6px;
   padding: 14px 8px;
-  border: 2px solid rgba(255, 255, 255, 0.1);
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.04);
-  color: rgba(255, 255, 255, 0.7);
+  border: 1.5px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  color: rgba(255, 255, 255, 0.6);
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;
+  font-family: var(--mts-font-ui, 'MTS Text', sans-serif);
 }
 #mts-appearance-panel .mode-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.15);
   color: #fff;
 }
 #mts-appearance-panel .mode-btn.active {
-  background: rgba(255, 255, 255, 0.12);
-  border-color: var(--theme-color, #6366f1);
-  color: #fff;
-  box-shadow: 0 0 0 1px var(--theme-color, #6366f1);
+  background: rgba(255, 0, 50, 0.12);
+  border-color: #FF0032;
+  color: #FF0032;
+  box-shadow: 0 0 0 1px rgba(255, 0, 50, 0.3), 0 2px 12px rgba(255, 0, 50, 0.2);
 }
 
 :root:not(.dark) #mts-appearance-panel .mode-btn {
-  border-color: rgba(0, 0, 0, 0.1);
+  border-color: rgba(0, 0, 0, 0.09);
   background: rgba(0, 0, 0, 0.02);
-  color: rgba(0, 0, 0, 0.6);
+  color: rgba(0, 0, 0, 0.55);
 }
 :root:not(.dark) #mts-appearance-panel .mode-btn:hover {
   background: rgba(0, 0, 0, 0.05);
-  border-color: rgba(0, 0, 0, 0.2);
+  border-color: rgba(0, 0, 0, 0.15);
   color: #111;
 }
 :root:not(.dark) #mts-appearance-panel .mode-btn.active {
-  background: rgba(0, 0, 0, 0.06);
-  border-color: var(--theme-color, #6366f1);
-  color: #111;
+  background: rgba(255, 0, 50, 0.08);
+  border-color: #FF0032;
+  color: #FF0032;
 }
 
 #mts-appearance-panel .mode-icon {
@@ -443,7 +502,7 @@
 #mts-appearance-panel .accent-grid {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
 }
 
 #mts-appearance-panel .accent-btn {
@@ -452,65 +511,65 @@
   gap: 12px;
   width: 100%;
   padding: 10px 12px;
-  border: 2px solid transparent;
-  border-radius: 12px;
+  border: 1.5px solid transparent;
+  border-radius: 10px;
   background: transparent;
-  color: rgba(255, 255, 255, 0.8);
+  color: rgba(255, 255, 255, 0.75);
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;
   text-align: left;
   position: relative;
+  font-family: var(--mts-font-ui, 'MTS Text', sans-serif);
 }
 #mts-appearance-panel .accent-btn:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.05);
   color: #fff;
 }
 #mts-appearance-panel .accent-btn.active {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.15);
+  background: rgba(255, 0, 50, 0.08);
+  border-color: rgba(255, 0, 50, 0.35);
   color: #fff;
 }
 
 :root:not(.dark) #mts-appearance-panel .accent-btn {
-  color: rgba(0, 0, 0, 0.7);
+  color: rgba(0, 0, 0, 0.65);
 }
 :root:not(.dark) #mts-appearance-panel .accent-btn:hover {
   background: rgba(0, 0, 0, 0.04);
   color: #111;
 }
 :root:not(.dark) #mts-appearance-panel .accent-btn.active {
-  background: rgba(0, 0, 0, 0.06);
-  border-color: rgba(0, 0, 0, 0.12);
+  background: rgba(255, 0, 50, 0.07);
+  border-color: rgba(255, 0, 50, 0.3);
   color: #111;
 }
 
-/* Swatch circle */
+/* Swatch */
 #mts-appearance-panel .accent-swatch {
   width: 22px;
   height: 22px;
-  border-radius: 50%;
-  border: 2px solid rgba(255, 255, 255, 0.18);
+  border-radius: 6px;
+  border: 2px solid rgba(255, 255, 255, 0.15);
   flex-shrink: 0;
   transition: transform 0.2s ease;
 }
 :root:not(.dark) #mts-appearance-panel .accent-swatch {
-  border-color: rgba(0, 0, 0, 0.12);
+  border-color: rgba(0, 0, 0, 0.1);
 }
 #mts-appearance-panel .accent-btn:hover .accent-swatch {
-  transform: scale(1.12);
+  transform: scale(1.15);
 }
 
-/* Label text */
 #mts-appearance-panel .accent-label {
   flex: 1;
 }
 
-/* Checkmark — hidden by default */
+/* Checkmark */
 #mts-appearance-panel .accent-check {
   display: none;
-  color: var(--theme-color, #6366f1);
+  color: #FF0032;
   font-size: 16px;
   font-weight: 700;
 }
@@ -518,7 +577,122 @@
   display: block;
 }
 
-/* --- Injected menu item in the profile dropdown --- */
+/* --- Profile dropdown menu item --- */
 #mts-appearance-menu-item {
   transition: background 0.15s ease;
+}
+
+/* ============================================================
+   МТС Красный — лаконичные акценты в главном интерфейсе
+   ============================================================ */
+
+/* 1. Граница сайдбара — отключена */
+/* :root[data-theme^="mts"] #sidebar { border-right: ... } */
+
+/* 2. Кнопка отправки сообщения — красная */
+:root[data-theme^="mts"] button[aria-label="Send message"],
+:root[data-theme^="mts"] button[aria-label="Отправить сообщение"] {
+  background-color: var(--mts-red) !important;
+  color: #fff !important;
+  border-radius: 50% !important;
+  transition: background-color 0.2s ease, box-shadow 0.2s ease !important;
+}
+:root[data-theme^="mts"] button[aria-label="Send message"]:hover,
+:root[data-theme^="mts"] button[aria-label="Отправить сообщение"]:hover {
+  background-color: var(--mts-red-dark) !important;
+  box-shadow: 0 0 0 4px rgba(255, 0, 50, 0.2) !important;
+}
+
+/* 3. Активный чат в сайдбаре — красная левая полоска */
+:root[data-theme^="mts"] #sidebar a[aria-current="page"],
+:root[data-theme^="mts"] #sidebar [data-active="true"] {
+  border-left: 3px solid var(--mts-red) !important;
+  padding-left: calc(0.5rem - 3px) !important;
+}
+
+/* 4. Кнопка «Новый чат» — красная при наведении */
+:root[data-theme^="mts"] #sidebar-new-chat-button:hover {
+  color: var(--mts-red) !important;
+}
+
+/* 5. Логотип МТС — строго квадратный, без скруглений */
+:root[data-theme^="mts"] #sidebar img[src*="favicon"],
+:root[data-theme^="mts"] #sidebar img[alt*="logo"],
+img[src*="favicon"],
+img[src*="splash"] {
+  border-radius: 0 !important;
+  aspect-ratio: 1 / 1;
+  object-fit: contain;
+}
+
+/* 6. Поле ввода в фокусе — стандартный стиль (красный outline отключён) */
+/* :root[data-theme^="mts"] div[contenteditable]:focus { ... } */
+
+/* ============================================================
+   Аватары моделей — квадратные (убираем rounded-full)
+   ============================================================ */
+
+/* Все img с классом rounded-full — квадратные (модели в дропдауне, чате, шапке) */
+img.rounded-full,
+img[class*="rounded"] {
+  border-radius: 0 !important;
+  aspect-ratio: 1 / 1 !important;
+  object-fit: contain !important;
+}
+
+/* Обёртки-контейнеры с img внутри — тоже без скруглений */
+div.rounded-full:has(> img),
+span.rounded-full:has(> img),
+button.rounded-full:has(> img) {
+  border-radius: 0 !important;
+}
+
+/* Дополнительно: любой img внутри элемента с rounded-full */
+.rounded-full > img {
+  border-radius: 0 !important;
+  aspect-ratio: 1 / 1 !important;
+  object-fit: contain !important;
+}
+
+/* ============================================================
+   Кнопка остановки генерации — красный МТС
+   ============================================================ */
+:root[data-theme^="mts"] button[aria-label="Stop"],
+:root[data-theme^="mts"] button[aria-label="Стоп"],
+:root[data-theme^="mts"] button[aria-label="Stop Response"],
+:root[data-theme^="mts"] button[aria-label="Stop Generation"] {
+  background-color: var(--mts-red) !important;
+  border-color: var(--mts-red) !important;
+  color: #fff !important;
+  transition: background-color 0.2s ease, box-shadow 0.2s ease !important;
+}
+:root[data-theme^="mts"] button[aria-label="Stop"]:hover,
+:root[data-theme^="mts"] button[aria-label="Стоп"]:hover,
+:root[data-theme^="mts"] button[aria-label="Stop Response"]:hover,
+:root[data-theme^="mts"] button[aria-label="Stop Generation"]:hover {
+  background-color: var(--mts-red-dark) !important;
+  box-shadow: 0 0 0 4px rgba(255, 0, 50, 0.25) !important;
+}
+/* Иконка внутри кнопки — белая */
+:root[data-theme^="mts"] button[aria-label="Stop"] svg,
+:root[data-theme^="mts"] button[aria-label="Stop Response"] svg,
+:root[data-theme^="mts"] button[aria-label="Stop Generation"] svg {
+  fill: #fff !important;
+  color: #fff !important;
+}
+
+/* ============================================================
+   Отступ после блока рассуждений (thinking/reasoning)
+   ============================================================ */
+
+/* Пустая строка после коллапсибл-блока рассуждений */
+details {
+  margin-bottom: 1.25rem !important;
+}
+
+/* На случай если блок рендерится не через <details> а через div */
+[class*="thinking"],
+[class*="reasoning"],
+[class*="thought"] {
+  margin-bottom: 1.25rem !important;
 }

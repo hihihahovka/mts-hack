@@ -221,7 +221,7 @@ class Pipe:
             if __event_emitter__:
                 await __event_emitter__({
                     "type": "status",
-                    "data": {"description": "✅ Изображение сгенерировано!", "done": True}
+                    "data": {"description": "🟥 Изображение сгенерировано!", "done": True}
                 })
 
             return f"![{revised_prompt}]({display_url})\n\n*Модель: **{model_id}** | Запрос: \"{prompt}\"*"

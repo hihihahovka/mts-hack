@@ -158,7 +158,7 @@ class Tools:
 
             if __event_emitter__:
                 await __event_emitter__(
-                    {"type": "status", "data": {"description": "✅ Изображение сгенерировано!", "done": True}}
+                    {"type": "status", "data": {"description": "🟥 Изображение сгенерировано!", "done": True}}
                 )
 
             # Return markdown image — OpenWebUI will render it inline

@@ -319,6 +319,12 @@ def main():
             "description": "Глубокое исследование темы: декомпозиция запроса, поиск через SearXNG, парсинг через Jina Reader, синтез отчёта. Вызовите deep_research(topic) для исследования.",
             "filepath": f"{TOOLS_DIR}/deep_research_tool.py",
         },
+        {
+            "id": "presentation_tool",
+            "name": "📊 Presentation Slides",
+            "description": "Генерация интерактивной HTML-презентации в формате Reveal.js. Возвращает ссылку на скачивание. Вызовите generate_presentation(topic).",
+            "filepath": f"{TOOLS_DIR}/presentation_tool.py",
+        },
     ]
 
     for tool in tools:

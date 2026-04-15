@@ -1,25 +1,20 @@
 /**
- * MTS AI Workspace — Appearance Panel
+ * MTS AI Workspace — Appearance Panel (МТС Фирменный стиль)
  * ============================================================
  * Injects "Внешний вид" (Appearance) item into the user profile
  * dropdown menu. Opens a slide-over panel with:
  *   1. Theme mode selector (Light / Dark / System)
- *   2. Color accent selector (7 palettes + Reset)
+ *   2. Color accent selector (2 MTS brand themes + Reset)
  * Persists all choices in localStorage.
  * ============================================================
  */
 (function () {
   'use strict';
 
-  /* ── colour accents ── */
+  /* ── МТС фирменные темы ── */
   const ACCENTS = [
-    { id: 'indigo',   name: 'Indigo',   color: '#6366f1', emoji: '💎' },
-    { id: 'emerald',  name: 'Emerald',  color: '#10b981', emoji: '🌿' },
-    { id: 'amethyst', name: 'Amethyst', color: '#a855f7', emoji: '🔮' },
-    { id: 'ruby',     name: 'Ruby',     color: '#f43f5e', emoji: '❤️‍🔥' },
-    { id: 'amber',    name: 'Amber',    color: '#f59e0b', emoji: '🌅' },
-    { id: 'graphite', name: 'Graphite', color: '#737373', emoji: '🌑' },
-    { id: 'aurora',   name: 'Aurora',   color: '#06b6d4', emoji: '🌊' },
+    { id: 'mts-dark',  name: 'МТС Тёмная',   color: '#FF0032', emoji: '🔴' },
+    { id: 'mts-light', name: 'МТС Светлая',   color: '#FF0032', emoji: '⬜' },
   ];
 
   const ACCENT_KEY = 'mts-theme';        // colour accent
@@ -326,9 +321,11 @@
      ─────────────────────────────────── */
   function init() {
     // Restore accent immediately (prevent FOUC)
-    const savedAccent = localStorage.getItem(ACCENT_KEY);
-    if (savedAccent) {
-      document.documentElement.setAttribute('data-theme', savedAccent);
+    // Default to МТС Dark theme if nothing saved yet
+    const savedAccent = localStorage.getItem(ACCENT_KEY) || 'mts-dark';
+    document.documentElement.setAttribute('data-theme', savedAccent);
+    if (!localStorage.getItem(ACCENT_KEY)) {
+      localStorage.setItem(ACCENT_KEY, 'mts-dark');
     }
 
     // Restore mode
