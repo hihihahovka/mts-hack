@@ -1,11 +1,10 @@
 /**
- * MTS AI Workspace — Citation Pills v4
+ * MTS AI Workspace — Citation Pills v2
  * ======================================
  * Стилизует citation-ссылки как pill-бейджи.
  *
- * Шаг 1: Читает скрытый <span id="mts-cite-map" data-map='{"1":"url",...}'>
- *         который бэкенд вставляет в конец отчёта.
- * Шаг 2: Находит [N] в тексте и заменяет на кликабельный pill-бейдж.
+ * Матчит ссылки с текстом: (N) или (N) Любой текст
+ * Заголовок берёт из текста ссылки (если есть) или из домена href.
  */
 (function () {
   'use strict';
@@ -74,198 +73,79 @@
         white-space: nowrap !important;
         max-width: 130px !important;
       }
-      /* Скрываем встроенные серые плашки цитат от Open WebUI для Deep Research */
-      button[data-source-title*="deep_research"],
-      button[data-source-title*="undefined"] {
-        display: none !important;
-      }
     `;
     document.head.appendChild(style);
   }
 
-  // Глобальный реестр уникальных URL для присвоения номеров
-  const uniqueUrls = [];
-
-  function getCiteNumForUrl(href) {
-    if (!href) return '?';
-    // Нормализуем URL (убираем концевые слэши)
-    const norm = href.replace(/\/$/, '');
-    let idx = uniqueUrls.findIndex(u => u.replace(/\/$/, '') === norm);
-    if (idx === -1) {
-      uniqueUrls.push(href);
-      idx = uniqueUrls.length - 1;
-    }
-    return idx + 1;
-  }
+  // Матчит텍스트вида: (2) OR (2) Some title text
+  const CITE_RE = /^\((\d+)\)(?:\s+(.+))?$/;
 
   function getDomain(href) {
     try {
-      return new URL(href).hostname.replace(/^www\./, '');
+      const u = new URL(href);
+      return u.hostname.replace(/^www\./, '');
     } catch (e) {
       return '';
     }
+  }
+
+  function pillify(a) {
+    if (a.dataset.mtsPill) return;
+
+    const raw = (a.textContent || '').trim();
+    const m = raw.match(CITE_RE);
+    if (!m) return;
+
+    const href = a.getAttribute('href') || '';
+    if (!href.startsWith('http')) return;
+
+    a.dataset.mtsPill = '1';
+
+    const num = m[1];
+    // Заголовок: берём из текста ссылки, если есть, иначе домен
+    let label = (m[2] || '').trim();
+    if (!label) {
+      label = getDomain(href);
+    }
+    // Ограничиваем длину
+    if (label.length > 30) {
+      label = label.slice(0, 30).trimEnd();
+    }
+
+    a.classList.add('mts-pill');
+    a.setAttribute('target', '_blank');
+    a.setAttribute('rel', 'noopener noreferrer');
+    a.title = href;
+
+    a.innerHTML =
+      `<span class="mts-pill-num">${num}</span>` +
+      (label ? `<span class="mts-pill-label">${esc(label)}</span>` : '');
   }
 
   function esc(s) {
     return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
-  function buildPillHTML(num, label) {
-    return (
-      `<span class="mts-pill-num">${num}</span>` +
-      (label ? `<span class="mts-pill-label">${esc(label)}</span>` : '')
-    );
-  }
-
-  /**
-   * Превращает существующий <a> тег в pill-бейдж, если это похоже на цитату.
-   */
-  function processAnchorTags(root) {
-    const searchRoot = root instanceof Document ? document.body : root;
-    if (!searchRoot) return;
-
-    const anchors = searchRoot.querySelectorAll('a:not(.mts-pill)');
-    anchors.forEach(a => {
-      // Игнорируем если уже обработан или внутри каких-то спец блоков
-      if (a.hasAttribute('data-mts-pill')) return;
-      if (a.closest('code, pre, .mts-pill')) return;
-
-      const text = a.textContent.trim();
-      const href = a.href;
-      if (!href || !href.startsWith('http')) return;
-
-      // Если текст ссылки это просто цифра (рендер от [1](url))
-      // Или если текст начинается с http (рендер от авто-ссылок)
-      // Или если текст пустой
-      const isNum = /^\d+$/.test(text);
-      const isUrl = text.startsWith('http');
-      
-      if (isNum || isUrl || text === '') {
-        const num = getCiteNumForUrl(href);
-        const label = getDomain(href);
-        
-        a.setAttribute('target', '_blank');
-        a.setAttribute('rel', 'noopener noreferrer');
-        a.setAttribute('title', href);
-        a.setAttribute('data-mts-pill', '1');
-        a.classList.add('mts-pill');
-        a.innerHTML = buildPillHTML(num, label);
-
-        // Удаляем скобки вокруг ссылки: "( " перед ссылкой и " )." после, если они есть
-        if (a.previousSibling && a.previousSibling.nodeType === 3) {
-            a.previousSibling.textContent = a.previousSibling.textContent.replace(/[\(\[]\s*$/, '');
-        }
-        if (a.nextSibling && a.nextSibling.nodeType === 3) {
-            a.nextSibling.textContent = a.nextSibling.textContent.replace(/^\s*[\)\]]/, '');
-        }
-      }
+  function scan(root) {
+    (root.querySelectorAll ? root : document).querySelectorAll('a[href]').forEach(a => {
+      try { pillify(a); } catch (_) { }
     });
   }
 
-  // Регекс: ищет URL в скобках (https://...) или [https://...]
-  const RAW_URL_RE = /[\(\[]\s*(https?:\/\/[^\s\)\]]+)\s*[\)\]]/g;
-
-  /** Заменяет (url) и [url] в текстовых узлах на pill-ссылки */
-  function replaceTextNodeCitations(root) {
-    const searchRoot = root instanceof Document ? document.body : root;
-    if (!searchRoot) return;
-
-    const walker = document.createTreeWalker(
-      searchRoot,
-      NodeFilter.SHOW_TEXT,
-      {
-        acceptNode(node) {
-          const parent = node.parentElement;
-          if (!parent) return NodeFilter.FILTER_REJECT;
-          const tag = parent.tagName.toLowerCase();
-          // Пропускаем теги, в которых замена не нужна
-          if (['a', 'code', 'pre', 'script', 'style'].includes(tag)) {
-            return NodeFilter.FILTER_REJECT;
-          }
-          // Принимаем только если есть URL в скобках
-          RAW_URL_RE.lastIndex = 0;
-          if (!RAW_URL_RE.test(node.textContent)) return NodeFilter.FILTER_REJECT;
-          RAW_URL_RE.lastIndex = 0;
-          return NodeFilter.FILTER_ACCEPT;
-        }
-      }
-    );
-
-    const nodesToReplace = [];
-    let node;
-    while ((node = walker.nextNode())) nodesToReplace.push(node);
-
-    for (const textNode of nodesToReplace) {
-      const text = textNode.textContent;
-      
-      // Разбиваем текст по сырым URL в скобках
-      const parts = text.split(/([\(\[]\s*https?:\/\/[^\s\)\]]+\s*[\)\]])/i);
-      if (parts.length <= 1) continue;
-
-      let changed = false;
-      const fragment = document.createDocumentFragment();
-
-      for (const part of parts) {
-        const mPart = part.match(/^[\(\[]\s*(https?:\/\/[^\s\)\]]+)\s*[\)\]]$/i);
-        if (mPart) {
-          let href = mPart[1];
-          // Убираем возможные знаки пунктуации в конце URL
-          href = href.replace(/[.,;:!?]+$/, '');
-
-          const num = getCiteNumForUrl(href);
-          const label = getDomain(href);
-          
-          const a = document.createElement('a');
-          a.href = href;
-          a.setAttribute('target', '_blank');
-          a.setAttribute('rel', 'noopener noreferrer');
-          a.setAttribute('title', href);
-          a.setAttribute('data-mts-pill', '1');
-          a.classList.add('mts-pill');
-          a.innerHTML = buildPillHTML(num, label);
-          fragment.appendChild(a);
-          changed = true;
-        } else {
-          fragment.appendChild(document.createTextNode(part));
-        }
-      }
-
-      if (changed && textNode.parentNode) {
-        textNode.parentNode.replaceChild(fragment, textNode);
-      }
-    }
-  }
-
-  /** Полный проход */
-  function scan(root) {
-    try { processAnchorTags(root); } catch (e) { console.error(e); }
-    try { replaceTextNodeCitations(root); } catch (e) { console.error(e); }
-  }
-
   const obs = new MutationObserver(muts => {
-    let needScan = false;
-
     for (const m of muts) {
       for (const n of m.addedNodes) {
-        if (n.nodeType === 1) { // Element
-          needScan = true;
-        } else if (n.nodeType === 3) { // Text Node
-          needScan = true;
-        }
+        if (n.nodeType !== 1) continue;
+        scan(n);
+        if (n.tagName === 'A') try { pillify(n); } catch (_) { }
       }
-    }
-
-    if (needScan) {
-      // Ищем ближайший родительский контейнер сообщений или body, чтобы сузить область
-      try { processAnchorTags(document.body); } catch (_) {}
-      try { replaceTextNodeCitations(document.body); } catch (_) {}
     }
   });
 
   function init() {
     scan(document);
-    obs.observe(document.body, { childList: true, subtree: true, characterData: true });
-    console.log('[MTS] Citation pills v5 ready (Dynamic URL mode)');
+    obs.observe(document.body, { childList: true, subtree: true });
+    console.log('[MTS] Citation pills v2 ready');
   }
 
   if (document.readyState === 'loading') {
