@@ -38,6 +38,18 @@ import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
+
+app = FastAPI(title="MWS Voice Chat Server")
+
+# Allow WebSockets from OpenWebUI origin
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Adjust this in production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 from vad import EnergyVAD
 import tts_engine
@@ -384,8 +396,6 @@ class VoiceSession:
 
 
 # ── FastAPI App ──────────────────────────────────────────────
-
-app = FastAPI(title="Voice Chat Server", version="1.0.0")
 
 # Serve static files (UI)
 STATIC_DIR = Path(__file__).parent / "static"
