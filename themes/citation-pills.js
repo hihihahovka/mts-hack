@@ -145,6 +145,16 @@
         a.setAttribute('data-mts-pill', '1');
         a.classList.add('mts-pill');
         a.innerHTML = buildPillHTML(num, label);
+        
+        // Очищаем скобки вокруг бейджа, если LLM всё-таки их добавила, например: "Факт ( [1](url) )"
+        const prev = a.previousSibling;
+        if (prev && prev.nodeType === Node.TEXT_NODE) {
+          prev.textContent = prev.textContent.replace(/\(\s*$/, '');
+        }
+        const next = a.nextSibling;
+        if (next && next.nodeType === Node.TEXT_NODE) {
+          next.textContent = next.textContent.replace(/^\s*\)/, '');
+        }
       }
     });
   }

@@ -160,6 +160,7 @@ INLINE CITATION RULES:
 - Multiple sources for one fact: [1](url1)[2](url2) — no space between them
 - Example: "Температура выросла на 1.5°C за последние 10 лет [3](https://example.com/article)."
 - Do NOT use HTML tags or Unicode characters — use ONLY the plain [N](url) format (standard markdown link)
+- NEVER wrap citations in parentheses. Use [N](url) directly, NOT ([N](url)) and NOT ( [N](url) ).
 - Cite every specific fact, number, or claim that is traceable to a source
 
 STRICT FORMAT:
