@@ -63,6 +63,3 @@ RUN sed -i 's#</head>#<script>var t=localStorage.getItem("mts-theme")||"mts-dark
 
 # Инжектим скрипт переключателя тем и авторутинга в <head> HTML
 RUN sed -i 's|</head>|<script>var t=localStorage.getItem("mts-theme");if(t)document.documentElement.setAttribute("data-theme",t);</script><script defer src="/static/theme-selector.js"></script><script defer src="/static/autorouting-selector.js"></script><script src="/static/model-tags.js"></script></head>|' /app/build/index.html
-
-# Подменяем плейсхолдер VOICE_CHAT_PORT_PLACEHOLDER в inject.js на значение переменной при старте контейнера
-CMD sed -i "s/VOICE_CHAT_PORT_PLACEHOLDER/${VOICE_CHAT_PORT:-9001}/g" /app/build/static/inject.js && bash start.sh

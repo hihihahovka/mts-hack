@@ -11,9 +11,7 @@
     'use strict';
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const voicePort = "VOICE_CHAT_PORT_PLACEHOLDER";
-    const hostName = window.location.hostname;
-    const WS_URL = `${protocol}//${hostName}:${voicePort}/ws/voice`;
+    const WS_URL = `${protocol}//${window.location.host}/ws/voice`;
 
     let overlay = null;
     let ws = null;
