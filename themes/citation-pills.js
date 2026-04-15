@@ -74,6 +74,11 @@
         white-space: nowrap !important;
         max-width: 130px !important;
       }
+      /* Скрываем встроенные серые плашки цитат от Open WebUI для Deep Research */
+      button[data-source-title*="deep_research"],
+      button[data-source-title*="undefined"] {
+        display: none !important;
+      }
     `;
     document.head.appendChild(style);
   }
@@ -145,6 +150,14 @@
         a.setAttribute('data-mts-pill', '1');
         a.classList.add('mts-pill');
         a.innerHTML = buildPillHTML(num, label);
+
+        // Удаляем скобки вокруг ссылки: "( " перед ссылкой и " )." после, если они есть
+        if (a.previousSibling && a.previousSibling.nodeType === 3) {
+            a.previousSibling.textContent = a.previousSibling.textContent.replace(/[\(\[]\s*$/, '');
+        }
+        if (a.nextSibling && a.nextSibling.nodeType === 3) {
+            a.nextSibling.textContent = a.nextSibling.textContent.replace(/^\s*[\)\]]/, '');
+        }
       }
     });
   }
