@@ -141,44 +141,36 @@ Provide:
 If the source contains NO useful information on the topic, respond with
 "IRRELEVANT SOURCE" and nothing else."""
 
-STAGE_REDUCE_SYSTEM = """You are an expert research analyst. Write a deep research report in Russian.
+STAGE_REDUCE_SYSTEM = """You are an expert research analyst. Write a structured report in Russian.
 
 RULES:
 - Organize by THEME, not by source
 - Use ONLY facts from the provided sources — do NOT invent data
-- Include specific names, numbers, dates, statistics from sources — be detailed and thorough
+- Include specific names, numbers, dates from sources
 - If sources contradict each other, mention it
-- Each theme section should have 2-5 subsections with detailed paragraphs
+- Keep the report concise: MAX 3-5 subsections in "Подробный анализ"
 - Do NOT repeat the same information in different sections
 - Do NOT add a "Sources", "Источники", or "References" section at the end — citations are inline only
-- Write in a rich, analytical style — do NOT be brief, expand each point with specific facts and data
 
 INLINE CITATION RULES:
 - After each specific fact, claim, or statistic, add an inline citation
-- Format: [N](url) where N is the source number and url is the EXACT URL from the source reference list
+- Format: [(N)](url) where N is the source number and url is the EXACT URL from the source reference list
 - Place the citation immediately after the relevant word or fact, before the period
-- Multiple sources for one fact: [1](url1)[2](url2) — no space between them
-- Example: "Температура выросла на 1.5°C за последние 10 лет [3](https://example.com/article)."
-- Do NOT use HTML tags or Unicode characters — use ONLY the plain [N](url) format (standard markdown link)
-- Cite every specific fact, number, or claim that is traceable to a source
+- Multiple sources for one fact: [(1)](url1)[(2)](url2) — no space between them
+- Example: "Температура выросла на 1.5°C за последние 10 лет[(3)](https://example.com/article)."
+- Do NOT use HTML tags or Unicode characters — use ONLY the plain [(N)](url) format
+- Do NOT cite every sentence — only where the fact is specific and traceable to a source
 
-STRICT FORMAT:
+STRICT FORMAT (use ## headers exactly as shown):
 
-[NO HEADER — write 2-4 sentences introducing the topic and its significance. Do NOT use any header or label here. This is a plain introductory paragraph.]
+## Краткий ответ
+2-3 sentences with inline citations.
 
-## 1. [Theme Name]
-[1-2 sentences describing this theme]
+## Подробный анализ
+3-5 subsections with ### headers. Each subsection: 2-4 paragraphs with inline [N](url) citations.
 
-### **[Subsection Name]**: [detailed paragraph with specific facts, numbers, dates from sources, inline citations]
-### **[Subsection Name]**: [detailed paragraph ...]
-
-## 2. [Theme Name]
-...
-
-(3-6 numbered ## sections total, each with 2-5 ### subsections)
-
-## Итоги
-3-6 bullet points summarizing the most important findings with inline citations. Be specific — include numbers and key facts."""
+## Ключевые выводы
+3-5 bullet points with inline [N](url) citations."""
 
 STAGE_REDUCE_USER_TEMPLATE = """Topic: "{topic}"
 
@@ -188,12 +180,7 @@ Source reference list (use these EXACT URLs in [N](url) inline citations):
 Source extracts ({n_sources} sources):
 {map_extractions}
 
-Write ONE deep research report in Russian following the STRICT FORMAT exactly:
-1. Start with a plain introductory paragraph (NO header label)
-2. Then numbered ## sections (## 1. Theme, ## 2. Theme, etc.) with ### subsections containing detailed facts and inline citations
-3. End with ## Итоги bullet points
-
-Be thorough and detailed — include all specific facts, statistics, names and dates from the sources. No "Источники" section at the end."""
+Write ONE report in Russian with inline [N](url) citations after each fact. MAX 5 subsections. No "Источники" section at the end."""
 
 STAGE_4_SYSTEM = STAGE_REDUCE_SYSTEM
 
@@ -202,12 +189,7 @@ STAGE_4_USER_TEMPLATE = """Topic: "{topic}"
 Collected materials:
 {combined_content}
 
-Write ONE deep research report in Russian following the STRICT FORMAT:
-1. Start with a plain introductory paragraph (NO header label)
-2. Then numbered ## sections (## 1. Theme, ## 2. Theme, etc.) with ### subsections containing detailed facts and inline citations
-3. End with ## Итоги bullet points
-
-Be thorough and detailed. Do NOT repeat information. No "Sources" section."""
+Write ONE report in Russian. MAX 5 subsections. Do NOT repeat information. No "Sources" section."""
 
 logger = logging.getLogger(__name__)
 
@@ -850,7 +832,7 @@ class Tools:
         __event_emitter__=None,
     ) -> str:
         """
-        Выполняет глубокое исследование темы и стримит полный отчёт напрямую пользователю.
+        Выполняет глубокое исследование темы.
 
         Используй этот инструмент когда пользователь просит:
         - "исследуй тему X"
@@ -858,12 +840,8 @@ class Tools:
         - "собери информацию о Z"
         - "глубокий разбор W"
 
-        ВАЖНО: после вызова этого инструмента полный отчёт уже отображён пользователю.
-        НЕ добавляй никакого текста, резюме или комментариев после получения результата.
-        Просто верни результат инструмента как есть.
-
         :param topic: Тема или вопрос для исследования.
-        :return: Статус завершения (отчёт уже показан пользователю через стрим).
+        :return: Структурированный отчёт с источниками.
         """
 
         # ═══════════════════════════════════════════════════════════
@@ -1198,7 +1176,7 @@ class Tools:
                 sys_synth,
                 __event_emitter__,
                 timeout=self.valves.llm_timeout,
-                stop_on_duplicate_header=None,
+                stop_on_duplicate_header="## Краткий ответ",
                 stop_on_headers=["## Источники", "## Sources", "## References"],
             )
             
@@ -1227,36 +1205,75 @@ class Tools:
             if m_sources:
                 final_report = final_report[:m_sources.start()].rstrip()
 
-            # --- Post-processing: нормализуем все цитаты к [N](url) ---
-            # Это стандартные markdown-ссылки: Open WebUI рендерит их
-            # как <a href="url">N</a>, а citation-pills.js превращает их в pill.
-            # Не нужно никаких скрытых карт или DOM-хаков.
+            # --- Post-processing: конвертируем URL-цитаты в кликабельные pill-сноски ---
+            def _find_title(url: str) -> str:
+                """Ищет заголовок по URL: точное совпадение → fuzzy по netloc → домен."""
+                # 1) Точное совпадение
+                title = url_to_title.get(url, "")
+                if title:
+                    return title
 
-            _cite_map: dict = dict(url_to_index) if url_to_index else {}
-            _cite_counter = [len(_cite_map)]
+                # 2) Fuzzy: ищем по совпадению netloc + начала пути
+                try:
+                    p = urlparse(url)
+                    target_netloc = p.netloc.lower()
+                    target_path = p.path.rstrip("/").lower()
+                    for stored_url, stored_title in url_to_title.items():
+                        sp = urlparse(stored_url)
+                        if sp.netloc.lower() == target_netloc:
+                            sp_path = sp.path.rstrip("/").lower()
+                            # Считаем совпадением если пути совпадают или один начинается с другого
+                            if sp_path == target_path or sp_path.startswith(target_path) or target_path.startswith(sp_path):
+                                return stored_title
+                except Exception:
+                    pass
 
-            def _cite_n_from_url(url: str) -> int:
-                if url not in _cite_map:
-                    _cite_counter[0] += 1
-                    _cite_map[url] = _cite_counter[0]
-                return _cite_map[url]
+                return ""
 
-            def _fmt_cite(url: str) -> str:
-                """[N](url) — стандартная markdown-ссылка."""
-                return f"[{_cite_n_from_url(url)}]({url})"
+            def _make_footnote(url: str, url_to_fn: dict) -> str:
+                """Возвращает pill-ссылку [(N) Label](url) с заголовком или доменом."""
+                if url not in url_to_fn:
+                    url_to_fn[url] = len(url_to_fn) + 1
+                n = url_to_fn[url]
 
-            # 1) Голый URL в скобках: (https://...) → [N](url)
+                raw_title = _find_title(url)
+                if raw_title:
+                    # Убираем мусор типа [PDF], [D] и берём первые 4 слова
+                    clean = re.sub(r'\[.*?\]\s*', '', raw_title).strip()
+                    words = clean.split()[:4]
+                    label = " ".join(words)
+                    if len(label) > 30:
+                        label = label[:30].rstrip()
+                else:
+                    # Fallback — домен без www
+                    try:
+                        label = urlparse(url).netloc.replace("www.", "")
+                    except Exception:
+                        label = url[:25]
+
+                return f"[({n}) {label}]({url})"
+
+            url_to_fn: dict = {}
+
+            # 1) Паттерн: (https://...) — LLM вставил голый URL в скобках
+            def _replace_paren_url(m: re.Match) -> str:
+                url = m.group(1).rstrip(".,;:!?)")
+                return _make_footnote(url, url_to_fn)
+
             final_report = re.sub(
                 r'\((https?://[^\s\)]{10,})\)',
-                lambda m: _fmt_cite(m.group(1).rstrip(".,;:!?)")),
+                _replace_paren_url,
                 final_report,
             )
 
-            # 2) Старые форматы → [N](url):
-            #    [(N)](url)  [N](url) уже в нужном формате,  [(N) Label](url)  [¹](url)
+            # 2) Паттерн: [N](url), [¹](url), [(N)](url) — уже markdown-ссылки, нормализуем в (N)
+            def _replace_md_citation(m: re.Match) -> str:
+                url = m.group(2).rstrip(".,;:!?")
+                return _make_footnote(url, url_to_fn)
+
             final_report = re.sub(
-                r'\[(?:[⁰¹²³⁴⁵⁶⁷⁸⁹]+|\(?[\d]+\)?(?:\s[^\]]{0,50})?)\]\((https?://[^\)]{10,})\)',
-                lambda m: _fmt_cite(m.group(1).rstrip(".,;:!?)")),
+                r'\[(?:[⁰¹²³⁴⁵⁶⁷⁸⁹]+|\(?\d+\)?)\]\((https?://[^\)]{10,})\)',
+                _replace_md_citation,
                 final_report,
             )
 
@@ -1271,9 +1288,7 @@ class Tools:
                 })
 
             await self.emit_status(__event_emitter__, "", True)
-            # Возвращаем инструкцию заглушить LLM-синтез.
-            # Open WebUI передаёт это как tool result → LLM видит "ничего не добавляй" и молчит.
-            return "\n\nОтчёт полностью готов и уже отображён пользователю выше. НЕ добавляй никакого дополнительного текста, комментариев или резюме — ответ уже завершён."
+            return ""
 
         except Exception as e:
             logger.error(f"Synthesis failed: {e}")
