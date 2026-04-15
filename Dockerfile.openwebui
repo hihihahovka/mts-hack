@@ -30,11 +30,6 @@ COPY --from=build /app/build /app/build
 # Копируем кастомную тему (будет доступна по /static/custom.css)
 COPY themes/custom.css /app/build/static/custom.css
 
-# Voice Chat: inject script to intercept voice mode button
-# Copy the inject script into the static directory
-COPY services/voice_chat/static/inject.js /app/build/static/inject.js
-# Inject <script> tag before </html> (SvelteKit build has no </body>)
-RUN sed -i 's|</html>|<script src="/static/inject.js"></script></html>|g' /app/build/index.html
 
 # Заменяем логотип OpenWebUI на логотип МТС
 COPY themes/mts-logo.png /app/build/static/favicon.png
