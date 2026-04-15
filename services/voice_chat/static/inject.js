@@ -10,9 +10,8 @@
 (function () {
     'use strict';
 
-    const VOICE_HOST = window.location.hostname || 'localhost';
-    const VOICE_PORT = '9001';
-    const WS_URL = `ws://${VOICE_HOST}:${VOICE_PORT}/ws/voice`;
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const WS_URL = `${protocol}//${window.location.host}/ws/voice`;
 
     let overlay = null;
     let ws = null;
@@ -21,7 +20,8 @@
     let scriptNode = null;
     let audioQueue = [];
     let isPlayingAudio = false;
-    let currentAudioEl = null;
+    let nextAudioStartTime = 0;
+    let currentSourceNodes = [];
     let currentState = 'idle';
 
     // ── Create Overlay UI ──────────────────────────────────────
@@ -226,7 +226,7 @@
     async function startMicrophone() {
         audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
         micStream = await navigator.mediaDevices.getUserMedia({
-            audio: { sampleRate: 16000, channelCount: 1, echoCancellation: true, noiseSuppression: true }
+            audio: { echoCancellation: true, noiseSuppression: true }
         });
 
         const source = audioCtx.createMediaStreamSource(micStream);
@@ -272,30 +272,52 @@
     }
 
     function playAudioChunk(b64) {
-        return new Promise((resolve, reject) => {
-            const binary = atob(b64);
-            const bytes = new Uint8Array(binary.length);
-            for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        return new Promise(async (resolve, reject) => {
+            try {
+                const binary = atob(b64);
+                const bytes = new Uint8Array(binary.length);
+                for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
 
-            const blob = new Blob([bytes], { type: 'audio/mpeg' });
-            const url = URL.createObjectURL(blob);
-            const audio = new Audio(url);
-            currentAudioEl = audio;
+                // Decode using the shared audioCtx for gapless playback
+                if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                
+                const audioBuffer = await audioCtx.decodeAudioData(bytes.buffer);
+                const source = audioCtx.createBufferSource();
+                source.buffer = audioBuffer;
+                source.connect(audioCtx.destination);
+                
+                // Keep track to stop later if interrupted
+                currentSourceNodes.push(source);
 
-            audio.onended = () => { currentAudioEl = null; URL.revokeObjectURL(url); resolve(); };
-            audio.onerror = (e) => { currentAudioEl = null; URL.revokeObjectURL(url); reject(e); };
-            audio.play().catch(reject);
+                source.onended = () => {
+                    const idx = currentSourceNodes.indexOf(source);
+                    if (idx > -1) currentSourceNodes.splice(idx, 1);
+                    resolve();
+                };
+
+                // Schedule exactly at the end of the previous chunk
+                const currentTime = audioCtx.currentTime;
+                if (nextAudioStartTime < currentTime) {
+                    nextAudioStartTime = currentTime + 0.05; // tiny buffer
+                }
+                
+                source.start(nextAudioStartTime);
+                nextAudioStartTime += audioBuffer.duration;
+            } catch (err) {
+                console.error("[VoiceChat] Decoding error:", err);
+                reject(err);
+            }
         });
     }
 
     function stopAllAudio() {
         audioQueue = [];
         isPlayingAudio = false;
-        if (currentAudioEl) {
-            currentAudioEl.pause();
-            currentAudioEl.currentTime = 0;
-            currentAudioEl = null;
-        }
+        currentSourceNodes.forEach(source => {
+            try { source.stop(); } catch (e) { /* already stopped */ }
+        });
+        currentSourceNodes = [];
+        nextAudioStartTime = 0;
     }
 
     // ── Open / Close ──────────────────────────────────────────
@@ -305,10 +327,14 @@
             await startMicrophone();
             connectWS();
         } catch (e) {
-            console.error('[VoiceChat] Microphone error:', e);
+            console.error('[VoiceChat] Microphone or WebSocket error:', e);
             setState('error');
             const status = document.getElementById('vc-status');
-            if (status) status.textContent = 'Нет доступа к микрофону';
+            if (status) {
+                if (e.name === 'NotAllowedError') status.textContent = 'Нет разрешения на микрофон';
+                else if (e.name === 'SecurityError') status.textContent = 'Ошибка безопасности (Mixed Content)';
+                else status.textContent = 'Ошибка соединения или микрофона';
+            }
         }
     }
 
@@ -351,7 +377,7 @@
         const buttons = document.querySelectorAll('button[aria-label]');
         for (const btn of buttons) {
             const label = btn.getAttribute('aria-label')?.toLowerCase() || '';
-            if (label.includes('voice mode') || label.includes('голос')) {
+            if (label.includes('voice mode') || label.includes('голос') || label === 'call') {
                 patchVoiceButton(btn);
             }
         }
@@ -370,7 +396,7 @@
         const buttons = document.querySelectorAll('button[aria-label]');
         for (const btn of buttons) {
             const label = btn.getAttribute('aria-label')?.toLowerCase() || '';
-            if (label.includes('voice mode') || label.includes('голос')) {
+            if (label.includes('voice mode') || label.includes('голос') || label === 'call') {
                 patchVoiceButton(btn);
             }
         }
