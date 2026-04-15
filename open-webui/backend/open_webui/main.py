@@ -1495,6 +1495,9 @@ app.include_router(images.router, prefix='/api/v1/images', tags=['images'])
 app.include_router(audio.router, prefix='/api/v1/audio', tags=['audio'])
 app.include_router(retrieval.router, prefix='/api/v1/retrieval', tags=['retrieval'])
 
+from open_webui.retrieval.rag_files.router import router as rag_files_router
+app.include_router(rag_files_router, prefix='/api/v1/rag', tags=['rag-files'])
+
 app.include_router(configs.router, prefix='/api/v1/configs', tags=['configs'])
 
 app.include_router(auths.router, prefix='/api/v1/auths', tags=['auths'])
@@ -1650,10 +1653,10 @@ async def chat_completion(
     try:
         model_info = None
         if not model_item.get('direct', False):
-            if model_id not in request.app.state.MODELS:
+            if model_id not in request.app.state.MODELS and model_id != "autorouting":
                 raise Exception('Model not found')
 
-            model = request.app.state.MODELS[model_id]
+            model = request.app.state.MODELS.get(model_id, {})
             model_info = Models.get_model_by_id(model_id)
 
             # Check if user has access to the model

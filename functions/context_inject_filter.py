@@ -1,18 +1,28 @@
 """
-Context Inject Filter (Hybrid Architecture)
-=============================================
+Context Inject Filter (Three-Scope Architecture)
+===================================================
 OpenWebUI Filter Function (inlet) that retrieves long-term memory context
 and injects it into the system prompt.
 
-ARCHITECTURE:
-- [IDENTITY] + [USER] + [FEEDBACK] = SQL (always injected, global core memory)
-- [PROJECT] = Vector DB semantic search (contextual, top-N relevant)
-- Fallback: if Vector DB unavailable, [PROJECT] falls back to SQL recency
+THREE SCOPES:
+  1. GLOBAL (chats without folder):
+     [IDENTITY] + [USER] + [FEEDBACK] from SQL (always global, always injected)
+     [PROJECT] from Vector DB semantic search (contextual, top-N)
 
-Uses Claude-Code style Taxonomy: [IDENTITY], [USER], [PROJECT], [FEEDBACK].
+  2. FOLDER (chats inside a folder — PROJECT isolated, core facts cascade):
+     [IDENTITY] + [USER] + [FEEDBACK] = always global, cascade into all folders
+     [PROJECT:folder:X] from Vector DB (collection: folder-{md5}, STRICTLY isolated)
+
+  3. LOCAL (per-chat):
+     [LOCAL:chat:X] from Vector DB (single collection: local-{md5(user_id)}, filtered by chat_id)
+     + 5 most recent from SQL. Chat-specific decisions/solutions via RAG.
+
+INJECTION FORMAT:
+  System Prompt = [FEEDBACK] + [IDENTITY] + [USER] + [PROJECT](top-N) + [LOCAL](RAG)
 """
 
 import datetime
+import hashlib
 import logging
 from pydantic import BaseModel, Field
 from typing import Optional
@@ -26,6 +36,14 @@ class Filter:
             default=True,
             description="Enable automatic memory injection."
         )
+        enable_global_memory: bool = Field(
+            default=True,
+            description="Enable global memory injection (for chats not in a folder)."
+        )
+        enable_local_memory: bool = Field(
+            default=True,
+            description="Enable per-chat local memory injection (decisions, solutions)."
+        )
         max_user_memories: int = Field(
             default=20,
             description="Maximum number of [USER] memories to inject."
@@ -38,9 +56,78 @@ class Filter:
             default=10,
             description="Number of recent [PROJECT] facts to inject when Vector DB is unavailable."
         )
+        max_local_relevant: int = Field(
+            default=10,
+            description="Top-N semantically relevant [LOCAL] facts to inject per chat."
+        )
+        max_local_recent: int = Field(
+            default=5,
+            description="Most recent [LOCAL] facts to inject per chat (chronological context)."
+        )
 
     def __init__(self):
         self.valves = self.Valves()
+
+    # =========================================================================
+    # Helpers
+    # =========================================================================
+
+    def _get_category(self, content: str) -> str:
+        """Extract full category tag from memory content."""
+        import re
+        match = re.match(r'(\[(?:IDENTITY|USER|PROJECT|FEEDBACK|LOCAL)(?::[^\]]+)?\])', content.strip())
+        if match:
+            return match.group(1)
+        return ""
+
+    def _get_base_category(self, content: str) -> str:
+        """Get base category. [PROJECT:folder:abc] -> [PROJECT], [LOCAL:chat:xyz] -> [LOCAL]."""
+        import re
+        match = re.match(r'(\[(?:IDENTITY|USER|PROJECT|FEEDBACK|LOCAL))', content.strip())
+        if match:
+            return match.group(1) + "]"
+        return ""
+
+    def _safe_collection_name(self, prefix: str, *ids: str) -> str:
+        """Build a ChromaDB-safe collection name (max 63 chars) by hashing IDs."""
+        raw = ":".join(ids)
+        hashed = hashlib.md5(raw.encode()).hexdigest()
+        return f"{prefix}-{hashed}"
+
+    def _matches_scope(self, content: str, folder_id: str = None) -> bool:
+        """Check if a memory matches the current scope.
+        
+        Core facts (IDENTITY/USER/FEEDBACK) are ALWAYS global — visible everywhere.
+        
+        PROJECT is STRICTLY isolated:
+        - [PROJECT] only visible in global (no folder)
+        - [PROJECT:folder:X] only visible in folder X
+        """
+        cat = self._get_category(content)
+        if not cat:
+            return False
+        base_cat = self._get_base_category(content)
+
+        # Core facts cascade: global ones always visible, folder overrides only in matching folder
+        if base_cat in ("[IDENTITY]", "[USER]", "[FEEDBACK]"):
+            if ":folder:" in cat:
+                return f":folder:{folder_id}" in cat if folder_id else False
+            return True  # Global core facts visible everywhere
+
+        # PROJECT is strictly quarantined
+        if folder_id:
+            return f":folder:{folder_id}" in cat
+        else:
+            return ":folder:" not in cat and ":chat:" not in cat
+
+    def _strip_tag(self, content: str) -> str:
+        """Remove the category tag prefix from content."""
+        import re
+        return re.sub(r'^\[(?:IDENTITY|USER|PROJECT|FEEDBACK|LOCAL)(?::[^\]]+)?\]\s*', '', content.strip())
+
+    # =========================================================================
+    # Memory Retrieval
+    # =========================================================================
 
     def _get_user_memories(self, user_id: str) -> list:
         """
@@ -51,9 +138,12 @@ class Filter:
             from open_webui.models.memories import Memories
             memories = Memories.get_memories_by_user_id(user_id)
             if memories is None:
-                logger.warning("[ContextInject] Memories.get_memories_by_user_id returned None (possible DB error)")
+                logger.warning("[ContextInject] Memories.get_memories_by_user_id returned None")
                 return []
-            result = [{"id": m.id, "content": m.content} for m in memories if hasattr(m, 'content') and m.content]
+            result = [
+                {"id": m.id, "content": m.content, "updated_at": getattr(m, 'updated_at', None)}
+                for m in memories if hasattr(m, 'content') and m.content
+            ]
             logger.info(f"[ContextInject] Fetched {len(result)} total memories for user {user_id[:8]}...")
             return result
         except ImportError as e:
@@ -63,10 +153,11 @@ class Filter:
 
         return []
 
-    async def _search_project_memories_vector(self, user_id: str, query_text: str, request, limit: int = 5) -> list:
+    async def _search_project_memories_vector(self, user_id: str, query_text: str, request,
+                                                limit: int = 5, folder_id: str = None) -> list:
         """
         Semantic search for [PROJECT] memories via Vector DB.
-        Uses request.app.state.EMBEDDING_FUNCTION for embeddings.
+        Scoped to folder if folder_id provided.
         Returns list of document strings, or empty list on failure.
         """
         try:
@@ -74,24 +165,22 @@ class Filter:
 
             embedding_function = request.app.state.EMBEDDING_FUNCTION
             if not embedding_function:
-                logger.warning("[ContextInject] EMBEDDING_FUNCTION not configured, skipping vector search")
+                logger.warning("[ContextInject] EMBEDDING_FUNCTION not configured")
                 return []
 
-            # Generate embedding for query — this is async
             vector = await embedding_function(query_text)
-
             if not vector:
-                logger.warning("[ContextInject] Embedding generation returned empty result")
                 return []
 
-            # Ensure vector is wrapped in list for search API
             search_vector = [vector] if not isinstance(vector[0], list) else vector
 
-            collection_name = f"user-memory-{user_id}"
+            if folder_id:
+                collection_name = self._safe_collection_name("folder", user_id, folder_id)
+            else:
+                collection_name = f"user-memory-{user_id}"
 
-            # Check if collection exists before querying
             if not VECTOR_DB_CLIENT.has_collection(collection_name):
-                logger.info(f"[ContextInject] No vector collection found for user, skipping semantic search")
+                logger.info(f"[ContextInject] No vector collection '{collection_name}', skipping")
                 return []
 
             results = VECTOR_DB_CLIENT.search(
@@ -103,23 +192,24 @@ class Filter:
             if not results or not results.documents:
                 return []
 
-            # Collect documents with their creation timestamps for chronological sorting
+            # Collect documents with timestamps for chronological sorting
             retrieved_items = []
             for i, doc_list in enumerate(results.documents):
                 meta_list = results.metadatas[i] if results.metadatas and i < len(results.metadatas) else []
                 for j, doc in enumerate(doc_list):
-                    if doc and doc.startswith("[PROJECT]"):
+                    base_cat = self._get_base_category(doc) if doc else ""
+                    if doc and base_cat == "[PROJECT]":
                         meta = meta_list[j] if j < len(meta_list) and isinstance(meta_list[j], dict) else {}
                         created_at = meta.get("created_at", 0)
                         retrieved_items.append({
-                            "content": doc.replace("[PROJECT]", "").strip(),
+                            "content": self._strip_tag(doc),
                             "timestamp": created_at
                         })
 
-            # Sort chronologically (oldest → newest) to preserve project timeline
+            # Sort chronologically (oldest → newest)
             retrieved_items.sort(key=lambda x: x["timestamp"])
 
-            # Format with human-readable dates so AI understands timeline
+            # Format with human-readable dates
             docs = []
             for item in retrieved_items:
                 if item["timestamp"] > 0:
@@ -128,21 +218,91 @@ class Filter:
                 else:
                     docs.append(item["content"])
 
-            logger.info(f"[ContextInject] Vector search returned {len(docs)} chronologically sorted [PROJECT] memories")
+            logger.info(f"[ContextInject] Vector search returned {len(docs)} [PROJECT] memories")
             return docs
 
         except Exception as e:
             logger.warning(f"[ContextInject] Vector search failed (falling back to SQL): {type(e).__name__}: {e}")
             return []
 
-    def _format_memory_context(self, identity_facts: list, user_facts: list, feedback_facts: list, project_facts: list) -> str:
+    async def _search_local_memories_vector(self, user_id: str, chat_id: str, query_text: str, request,
+                                             limit: int = 10) -> list:
+        """
+        Semantic search for [LOCAL] memories in the user's single local collection.
+        Uses metadata filter to scope results to this chat_id.
+        Returns list of document strings (stripped of tags), or empty list.
+        """
+        try:
+            from open_webui.retrieval.vector.factory import VECTOR_DB_CLIENT
+
+            embedding_function = request.app.state.EMBEDDING_FUNCTION
+            if not embedding_function:
+                return []
+
+            vector = await embedding_function(query_text)
+            if not vector:
+                return []
+
+            search_vector = [vector] if not isinstance(vector[0], list) else vector
+            collection_name = self._safe_collection_name("local", user_id)
+
+            if not VECTOR_DB_CLIENT.has_collection(collection_name):
+                return []
+
+            results = VECTOR_DB_CLIENT.search(
+                collection_name=collection_name,
+                vectors=search_vector,
+                limit=limit,
+                filter={"chat_id": chat_id},
+            )
+
+            if not results or not results.documents:
+                return []
+
+            docs = []
+            for i, doc_list in enumerate(results.documents):
+                for j, doc in enumerate(doc_list):
+                    if doc and self._get_base_category(doc) == "[LOCAL]":
+                        docs.append(self._strip_tag(doc))
+
+            logger.info(f"[ContextInject] Vector search returned {len(docs)} [LOCAL] memories for chat {chat_id[:12]}...")
+            return docs
+
+        except Exception as e:
+            logger.warning(f"[ContextInject] Local vector search failed: {type(e).__name__}: {e}")
+            return []
+
+    def _get_recent_local_memories_sql(self, all_memories: list, chat_id: str, limit: int = 5) -> list:
+        """
+        Get most recent [LOCAL:chat:X] memories from SQL for chronological context.
+        Returns list of content strings (stripped of tags).
+        """
+        prefix = f"[LOCAL:chat:{chat_id}]"
+        local_mems = [m for m in all_memories if m["content"].strip().startswith(prefix)]
+        # SQL memories are ordered by insertion — take last N
+        recent = local_mems[-limit:]
+        return [self._strip_tag(m["content"]) for m in recent]
+
+    # =========================================================================
+    # Formatting
+    # =========================================================================
+
+    def _format_memory_context(self, identity_facts: list, user_facts: list,
+                                feedback_facts: list, project_facts: list,
+                                local_facts: list = None) -> str:
         """Formats categorized memory lists into a structured system prompt block."""
-        if not identity_facts and not user_facts and not feedback_facts and not project_facts:
+        if not identity_facts and not user_facts and not feedback_facts and not project_facts and not local_facts:
             return ""
+
+        import datetime
+        now = datetime.datetime.now()
+        current_date = now.strftime("%Y-%m-%d %H:%M")
 
         blocks = []
         blocks.append("--- [MEMORY CONTEXT START] ---")
-        blocks.append("The following information has been recalled from past interactions:")
+        blocks.append(f"Current date/time: {current_date}")
+        blocks.append("The following information has been recalled from past interactions.")
+        blocks.append("Each fact may include (saved: DATE) — use this to calculate relative time.")
 
         # ALWAYS inject all [FEEDBACK] — behavioral rules are sacred
         if feedback_facts:
@@ -156,7 +316,7 @@ class Filter:
             for f in identity_facts:
                 blocks.append(f"- {f}")
 
-        # Inject [USER] with cap — rolling preferences
+        # Inject [USER] with cap
         if user_facts:
             blocks.append("\n## User Preferences:")
             for f in user_facts[-self.valves.max_user_memories:]:
@@ -168,35 +328,80 @@ class Filter:
             for f in project_facts:
                 blocks.append(f"- {f}")
 
+        # Inject [LOCAL] — this chat's decisions and solutions
+        if local_facts:
+            blocks.append("\n## This Chat's Context (decisions & solutions made here):")
+            for f in local_facts:
+                blocks.append(f"- {f}")
+
         blocks.append("--- [MEMORY CONTEXT END] ---")
 
         return "\n".join(blocks)
 
-    async def inlet(self, body: dict, __user__: Optional[dict] = None, __request__=None) -> dict:
+    # =========================================================================
+    # Main Inlet Pipeline
+    # =========================================================================
+
+    async def inlet(self, body: dict, __user__: Optional[dict] = None, __request__=None,
+                    __chat_id__: str = None, __metadata__: dict = None) -> dict:
         """
         INLET: Runs before LLM call.
-        Injects global core memories ([USER]/[FEEDBACK]) from SQL
-        and semantically relevant [PROJECT] memories from Vector DB.
+        Three-scope memory injection:
+        1. Global OR Folder scope (mutually exclusive, based on folder_id)
+        2. Local scope (per-chat, always if enabled)
         """
         if not self.valves.enable_context_injection or not __user__:
             return body
 
         user_id = __user__.get("id")
         if not user_id:
-            logger.warning("[ContextInject] No user id found in __user__, memory injection skipped.")
+            logger.warning("[ContextInject] No user id found, memory injection skipped.")
             return body
 
         messages = body.get("messages", [])
         if not messages:
             return body
 
+        # Determine scope
+        chat_id = __chat_id__ or (__metadata__.get("chat_id") if __metadata__ else None)
+
+        # Resolve folder_id from DB (OpenWebUI middleware does NOT propagate it to metadata)
+        folder_id = None
+        if chat_id and user_id:
+            try:
+                from open_webui.models.chats import Chats
+                # Primary: lightweight column query
+                folder_id = Chats.get_chat_folder_id(chat_id, user_id)
+                logger.info(f"[ContextInject] DB folder_id lookup: chat={chat_id[:12]}... → folder_id={folder_id}")
+            except AttributeError:
+                # Fallback: get_chat_folder_id may not exist in this OpenWebUI version
+                try:
+                    from open_webui.models.chats import Chats
+                    chat_obj = Chats.get_chat_by_id_and_user_id(chat_id, user_id)
+                    if chat_obj:
+                        folder_id = getattr(chat_obj, 'folder_id', None)
+                        logger.info(f"[ContextInject] Fallback chat lookup: folder_id={folder_id}")
+                except Exception as e2:
+                    logger.warning(f"[ContextInject] Fallback chat lookup failed: {e2}")
+            except Exception as e:
+                logger.warning(f"[ContextInject] Could not resolve folder_id from DB: {type(e).__name__}: {e}")
+        # Fallback: metadata (temporary chats / first message may have it)
+        if not folder_id:
+            folder_id = __metadata__.get("folder_id") if __metadata__ else None
+            if folder_id:
+                logger.info(f"[ContextInject] Using metadata folder_id={folder_id}")
+
+        scope_label = f"folder={folder_id[:12]}" if folder_id else "global"
+        chat_label = f"chat={chat_id[:12]}" if chat_id else "unknown"
+        logger.info(f"[ContextInject] Scope: {scope_label}, {chat_label}")
+
         # 1. Fetch ALL memories from SQL
         import asyncio
         raw_memories = await asyncio.to_thread(self._get_user_memories, user_id)
-        if not raw_memories:
+        if not raw_memories and not (self.valves.enable_local_memory and chat_id):
             return body
 
-        # 2. Categorize — separate by priority tier
+        # 2. Categorize by scope — filter based on folder_id
         identity_facts = []
         user_facts = []
         feedback_facts = []
@@ -204,21 +409,45 @@ class Filter:
 
         for mem in raw_memories:
             content = mem["content"].strip()
-            if content.startswith("[IDENTITY]"):
-                identity_facts.append(content.replace("[IDENTITY]", "").strip())
-            elif content.startswith("[USER]"):
-                user_facts.append(content.replace("[USER]", "").strip())
-            elif content.startswith("[FEEDBACK]"):
-                feedback_facts.append(content.replace("[FEEDBACK]", "").strip())
-            elif content.startswith("[PROJECT]"):
-                project_facts_sql.append(content.replace("[PROJECT]", "").strip())
-            # Skip uncategorized — they shouldn't exist in new system
+            base_cat = self._get_base_category(content)
+
+            # Skip if doesn't match scope
+            if not self._matches_scope(content, folder_id):
+                continue
+
+            # Skip LOCAL here — handled separately
+            if base_cat == "[LOCAL]":
+                continue
+
+            stripped = self._strip_tag(content)
+
+            # Append save date for temporal reasoning
+            updated_at = mem.get("updated_at")
+            if updated_at:
+                import datetime
+                if isinstance(updated_at, (int, float)):
+                    dt = datetime.datetime.fromtimestamp(updated_at)
+                elif isinstance(updated_at, datetime.datetime):
+                    dt = updated_at
+                else:
+                    dt = None
+                if dt:
+                    stripped = f"{stripped} (saved: {dt.strftime('%Y-%m-%d')})"
+
+            if base_cat == "[IDENTITY]":
+                identity_facts.append(stripped)
+            elif base_cat == "[USER]":
+                user_facts.append(stripped)
+            elif base_cat == "[FEEDBACK]":
+                feedback_facts.append(stripped)
+            elif base_cat == "[PROJECT]":
+                project_facts_sql.append(stripped)
 
         # 3. Get [PROJECT] facts — try Vector DB semantic search first, else SQL fallback
         project_facts = []
         vector_search_succeeded = False
 
-        if project_facts_sql and __request__:
+        if (project_facts_sql or self.valves.enable_global_memory) and __request__:
             # Find latest user message for semantic query
             latest_user_msg = ""
             for m in reversed(messages):
@@ -229,11 +458,11 @@ class Filter:
             if latest_user_msg:
                 vector_results = await self._search_project_memories_vector(
                     user_id, latest_user_msg, __request__,
-                    limit=self.valves.max_project_memories
+                    limit=self.valves.max_project_memories,
+                    folder_id=folder_id
                 )
                 if vector_results:
-                    # Strip [PROJECT] prefix from vector results
-                    project_facts = [doc.replace("[PROJECT]", "").strip() for doc in vector_results]
+                    project_facts = vector_results
                     vector_search_succeeded = True
 
         if not vector_search_succeeded and project_facts_sql:
@@ -241,8 +470,52 @@ class Filter:
             project_facts = project_facts_sql[-self.valves.project_fallback_count:]
             logger.info(f"[ContextInject] Using SQL fallback for {len(project_facts)} [PROJECT] memories")
 
-        # 4. Format and inject
-        memory_block = self._format_memory_context(identity_facts, user_facts, feedback_facts, project_facts)
+        # 4. Get [LOCAL] facts — semantic search + recent SQL, deduplicated
+        local_facts = []
+        if self.valves.enable_local_memory and chat_id:
+            local_semantic = []
+            if __request__:
+                latest_user_msg = ""
+                for m in reversed(messages):
+                    if m.get("role") == "user" and isinstance(m.get("content"), str):
+                        latest_user_msg = m["content"]
+                        break
+
+                if latest_user_msg:
+                    local_semantic = await self._search_local_memories_vector(
+                        user_id, chat_id, latest_user_msg, __request__,
+                        limit=self.valves.max_local_relevant
+                    )
+
+            # Most recent from SQL
+            local_recent = self._get_recent_local_memories_sql(
+                raw_memories, chat_id,
+                limit=self.valves.max_local_recent
+            )
+
+            # Deduplicate: union of semantic + recent, preserving order
+            seen = set()
+            for fact in local_semantic:
+                normalized = fact.strip().lower()
+                if normalized not in seen:
+                    local_facts.append(fact)
+                    seen.add(normalized)
+            for fact in local_recent:
+                normalized = fact.strip().lower()
+                if normalized not in seen:
+                    local_facts.append(fact)
+                    seen.add(normalized)
+
+            if local_facts:
+                logger.info(
+                    f"[ContextInject] Local memory: {len(local_semantic)} semantic + "
+                    f"{len(local_recent)} recent = {len(local_facts)} deduplicated"
+                )
+
+        # 5. Format and inject
+        memory_block = self._format_memory_context(
+            identity_facts, user_facts, feedback_facts, project_facts, local_facts
+        )
 
         if not memory_block:
             return body
@@ -258,10 +531,11 @@ class Filter:
 
         body["messages"] = messages
 
-        global_count = len(identity_facts) + len(user_facts) + len(feedback_facts)
+        core_count = len(identity_facts) + len(user_facts) + len(feedback_facts)
         logger.info(
-            f"[ContextInject] Injected {global_count} global ({len(identity_facts)} identity) + {len(project_facts)} project "
-            f"({'semantic' if vector_search_succeeded else 'recency'}) memories"
+            f"[ContextInject] Injected {core_count} core ({len(identity_facts)} identity) + "
+            f"{len(project_facts)} project (recency) + "
+            f"{len(local_facts)} local memories | scope={scope_label}"
         )
 
         return body

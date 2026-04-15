@@ -227,6 +227,50 @@ def upload_function(token: str, func_id: str, name: str, description: str, filep
         return False
 
 
+def upload_model(token: str, model_id: str, name: str, description: str):
+    """Upload a custom model to OpenWebUI via REST API."""
+    payload = {
+        "id": model_id,
+        "name": name,
+        "base_model_id": "",
+        "meta": {
+            "description": description,
+            "profile_image_url": "/favicon.png",
+        },
+        "params": {}
+    }
+
+    headers = {"Authorization": f"Bearer {token}"}
+
+    try:
+        response = httpx.post(
+            f"{OPENWEBUI_URL}/api/v1/models/create",
+            json=payload,
+            headers=headers,
+            timeout=10,
+        )
+        if response.status_code == 200:
+            print(f"[seed] ✅ Model '{name}' created")
+            return True
+
+        if response.status_code in (400, 401, 403, 409):
+            response = httpx.post(
+                f"{OPENWEBUI_URL}/api/v1/models/model/update",
+                json=payload,
+                headers=headers,
+                timeout=10,
+            )
+            if response.status_code == 200:
+                print(f"[seed] 🔄 Model '{name}' updated")
+                return True
+
+        print(f"[seed] ❌ Failed to upload model '{name}': {response.status_code} {response.text}")
+        return False
+    except Exception as e:
+        print(f"[seed] ❌ Error uploading model '{name}': {e}")
+        return False
+
+
 def main():
     print("=" * 60)
     print("[seed] MTS AI Workspace — Auto Seed Script")
@@ -242,14 +286,27 @@ def main():
         print("[seed] WARNING: Could not authenticate. Skipping seed.")
         sys.exit(0)
 
-    # Step 3: Upload Tools
+    # Step 3: Cleanup — remove deprecated tools that conflict with pipes
+    deprecated_tools = ["image_gen_tool"]  # Replaced by image_gen_pipe
+    headers = {"Authorization": f"Bearer {token}"}
+    for tool_id in deprecated_tools:
+        try:
+            resp = httpx.delete(
+                f"{OPENWEBUI_URL}/api/v1/tools/id/{tool_id}/delete",
+                headers=headers,
+                timeout=5,
+            )
+            if resp.status_code == 200:
+                print(f"[seed] 🗑️ Removed deprecated tool: {tool_id}")
+            else:
+                print(f"[seed] ℹ️ Tool '{tool_id}' not found or already removed")
+        except Exception:
+            pass
+
+    # Step 4: Upload Tools
     tools = [
-        {
-            "id": "image_gen_tool",
-            "name": "🖼️ Image Generator",
-            "description": "Генерация изображений через Pollinations AI. Вызовите generate_image(prompt) для создания картинки.",
-            "filepath": f"{TOOLS_DIR}/image_gen_tool.py",
-        },
+        # image_gen_tool УБРАН — image_gen_pipe (Pipe) уже обрабатывает генерацию картинок.
+        # Наличие обоих приводит к многократной генерации (LLM вызывает tool 5+ раз).
         {
             "id": "web_scraper_tool",
             "name": "🌐 Web Scraper",
@@ -262,6 +319,12 @@ def main():
             "description": "Глубокое исследование темы: декомпозиция запроса, поиск через SearXNG, парсинг через Jina Reader, синтез отчёта. Вызовите deep_research(topic) для исследования.",
             "filepath": f"{TOOLS_DIR}/deep_research_tool.py",
         },
+        {
+            "id": "presentation_tool",
+            "name": "📊 Presentation Slides",
+            "description": "Генерация интерактивной HTML-презентации в формате Reveal.js. Возвращает ссылку на скачивание. Вызовите generate_presentation(topic).",
+            "filepath": f"{TOOLS_DIR}/presentation_tool.py",
+        },
     ]
 
     for tool in tools:
@@ -270,7 +333,7 @@ def main():
         else:
             print(f"[seed] ⚠️ Tool file not found: {tool['filepath']}")
 
-    # Step 4: Upload Filter Functions
+    # Step 5: Upload Filter Functions
     functions = [
         {
             "id": "auto_router_filter",
@@ -293,6 +356,13 @@ def main():
             "filepath": f"{FUNCTIONS_DIR}/context_inject_filter.py",
             "type": "filter",
         },
+        {
+            "id": "image_gen_pipe",
+            "name": "🖼️ Image Generation (qwen-image)",
+            "description": "Генерация изображений через MWS GPT API. Модели qwen-image и qwen-image-lightning появятся в выпадающем списке.",
+            "filepath": f"{FUNCTIONS_DIR}/image_gen_pipe.py",
+            "type": "pipe",
+        },
     ]
 
     for func in functions:
@@ -304,11 +374,58 @@ def main():
         else:
             print(f"[seed] ⚠️ Function file not found: {func['filepath']}")
 
+    # Step 6: Configure TTS (auto-setup so it works on clean install)
+    configure_tts(token)
+
     print()
     print("=" * 60)
     print("[seed] ✅ Seeding complete!")
     print("[seed] Open http://localhost:8080 to start using MTS AI Workspace")
     print("=" * 60)
+
+
+def configure_tts(token: str):
+    """
+    Auto-configure TTS via OpenWebUI REST API.
+    Uses OpenAI-compatible endpoint with MWS GPT API.
+    """
+    headers = {"Authorization": f"Bearer {token}"}
+
+    try:
+        # Get current audio config to preserve STT settings
+        resp = httpx.get(
+            f"{OPENWEBUI_URL}/api/v1/audio/config",
+            headers=headers,
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            print(f"[seed] ⚠️ Could not read audio config: {resp.status_code}")
+            return
+
+        config = resp.json()
+
+        # Configure TTS — OpenAI-compatible with MWS GPT API
+        config["tts"]["ENGINE"] = "openai"
+        config["tts"]["OPENAI_API_BASE_URL"] = "https://api.gpt.mws.ru/v1"
+        config["tts"]["OPENAI_API_KEY"] = os.getenv("MWS_API_KEY", "")
+        config["tts"]["MODEL"] = "tts-1"
+        config["tts"]["VOICE"] = "alloy"
+        config["tts"]["SPLIT_ON"] = "punctuation"
+
+        # Update config
+        resp = httpx.post(
+            f"{OPENWEBUI_URL}/api/v1/audio/config/update",
+            json=config,
+            headers=headers,
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            print("[seed] 🔊 TTS настроен (OpenAI-compatible, MWS GPT API)")
+        else:
+            print(f"[seed] ⚠️ TTS config update failed: {resp.status_code} {resp.text}")
+
+    except Exception as e:
+        print(f"[seed] ⚠️ Could not configure TTS: {e}")
 
 
 if __name__ == "__main__":

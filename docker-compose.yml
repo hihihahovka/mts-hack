@@ -12,9 +12,10 @@ services:
     environment:
       - OPENAI_API_BASE_URL=https://api.gpt.mws.ru/v1
       - OPENAI_API_KEY=${MWS_API_KEY}
-      - OLLAMA_BASE_URL=http://ollama:11434
       - RAG_EMBEDDING_ENGINE=openai
       - RAG_EMBEDDING_MODEL=bge-m3
+      - RAG_OPENAI_API_BASE_URL=https://api.gpt.mws.ru/v1
+      - RAG_OPENAI_API_KEY=${MWS_API_KEY}
       - RAG_EMBEDDING_OPENAI_BATCH_SIZE=32
       - ENABLE_RAG_WEB_SEARCH=true
       - RAG_WEB_SEARCH_ENGINE=searxng
@@ -23,24 +24,34 @@ services:
       - AUDIO_STT_OPENAI_API_BASE_URL=http://whisper-api:9000/v1
       - AUDIO_STT_OPENAI_API_KEY=dummy
       - AUDIO_STT_MODEL=whisper-1
+      - AUDIO_STT_SUPPORTED_CONTENT_TYPES=audio/wav,audio/mpeg,audio/mp3,audio/ogg,audio/webm,audio/m4a,audio/mp4,audio/x-m4a,audio/flac,audio/*
       - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY:-supersecretkey123}
-      - WEBUI_AUTH=${WEBUI_AUTH:-false}
+      - WEBUI_AUTH=${WEBUI_AUTH:-true}
       - ENABLE_SIGNUP=true
-      - DATABASE_URL=postgresql://openwebui:openwebui_secret@postgres:5432/openwebui
+      - AIOHTTP_CLIENT_TIMEOUT=600
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-openwebui}:${POSTGRES_PASSWORD:-openwebui_secret}@postgres:5432/${POSTGRES_DB:-openwebui}
     volumes:
       - open-webui-data:/app/backend/data
     depends_on:
       postgres:
         condition: service_healthy
-      ollama:
-        condition: service_started
       searxng:
-        condition: service_started
+        condition: service_healthy
       whisper-api:
-        condition: service_started
+        condition: service_started  # не healthy — модель грузится ~1-2 мин при первом запуске
     networks:
       - mts-net
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s -f http://localhost:8080/api/version || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   # ============================================================
   # PostgreSQL — Database
@@ -49,9 +60,9 @@ services:
     image: postgres:16-alpine
     container_name: postgres-${ENV_NAME:-local}
     environment:
-      - POSTGRES_USER=openwebui
-      - POSTGRES_PASSWORD=openwebui_secret
-      - POSTGRES_DB=openwebui
+      - POSTGRES_USER=${POSTGRES_USER:-openwebui}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-openwebui_secret}
+      - POSTGRES_DB=${POSTGRES_DB:-openwebui}
     volumes:
       - postgres-data:/var/lib/postgresql/data
     ports:
@@ -59,25 +70,17 @@ services:
     networks:
       - mts-net
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U openwebui"]
       interval: 5s
       timeout: 5s
       retries: 5
 
-  # ============================================================
-  # Ollama
-  # ============================================================
-  ollama:
-    image: ollama/ollama:latest
-    container_name: ollama-${ENV_NAME:-local}
-    ports:
-      - "${OLLAMA_PORT:-11434}:11434"
-    volumes:
-      - ollama-data:/root/.ollama
-    networks:
-      - mts-net
-    restart: unless-stopped
 
   # ============================================================
   # SearXNG
@@ -94,6 +97,17 @@ services:
     networks:
       - mts-net
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8080/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   # ============================================================
   # Whisper API
@@ -108,6 +122,38 @@ services:
     networks:
       - mts-net
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4G
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:9000/health')\" || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 120s
+
+  # ============================================================
+  # Voice Chat Backend
+  # ============================================================
+  voice-chat:
+    build:
+      context: ./services/voice_chat
+      dockerfile: Dockerfile
+    container_name: voice-chat-${ENV_NAME:-local}
+    environment:
+      - MWS_API_KEY=${MWS_API_KEY}
+    ports:
+      - "${VOICE_CHAT_PORT:-9001}:9001"
+    networks:
+      - mts-net
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
 
   # ============================================================
   # Voice Chat — Realtime Voice Assistant (WebSocket)
@@ -139,13 +185,55 @@ services:
     container_name: seed-${ENV_NAME:-local}
     environment:
       - OPENWEBUI_URL=http://open-webui:8080
-      - WEBUI_AUTH=${WEBUI_AUTH:-false}
+      - WEBUI_AUTH=${WEBUI_AUTH:-true}
+      - MWS_API_KEY=${MWS_API_KEY}
     depends_on:
       open-webui:
-        condition: service_started
+        condition: service_healthy
     networks:
       - mts-net
     restart: "no"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+
+  # ============================================================
+  # Monitoring Stack (Portainer + Dozzle)
+  # ============================================================
+  portainer:
+    image: portainer/portainer-ce:latest
+    container_name: portainer-${ENV_NAME:-local}
+    ports:
+      - "${PORTAINER_PORT:-9010}:9000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer_data:/data
+    restart: unless-stopped
+    networks:
+      - mts-net
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+
+  dozzle:
+    image: amir20/dozzle:latest
+    container_name: dozzle-${ENV_NAME:-local}
+    ports:
+      - "${DOZZLE_PORT:-9990}:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+    networks:
+      - mts-net
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
 
 networks:
   mts-net:
@@ -153,5 +241,5 @@ networks:
 
 volumes:
   open-webui-data:
-  ollama-data:
   postgres-data:
+  portainer_data:

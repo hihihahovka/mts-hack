@@ -1,98 +1,59 @@
 """
-Auto Router Filter — Automatic Model Selection
-================================================
-OpenWebUI Filter Function (inlet + outlet) that automatically routes
-user requests to the optimal MWS GPT model based on:
+Auto Router Filter — Neural Network Model Selection
+===================================================
+OpenWebUI Filter Function that automatically routes
+user requests to the optimal model strictly using an LLM.
 
-Level 1 (instant heuristics):
-  - Modality: image → VLM, audio → ASR
-  - Keywords: code → kodify-2.0, long docs → cotype-preview-32k
-  - Triggers: "нарисуй" → image_gen tool, "найди" → web search
-
-Level 2 (LLM fallback):
-  - Uses mws-gpt-alpha for intent classification
-
-Outlet:
-  - Injects a routing badge showing which model was used and why
+The LLM is prompted to decide the model ID based on the user's
+request and standard rules (images, audio, files).
 
 Usage:
   Upload via Admin Panel → Functions → Create new filter function
-  Assign to all models in Workspace → Models
 """
 
+import json
+import logging
 import re
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, Any
+
+from fastapi import Request
+from open_webui.utils.chat import generate_chat_completion
+
+log = logging.getLogger(__name__)
 
 
 class Filter:
     class Valves(BaseModel):
         """Configurable parameters visible in OpenWebUI Admin Panel."""
-        default_model: str = Field(
-            default="mws-gpt-alpha",
-            description="Default model for general queries"
-        )
-        code_model: str = Field(
-            default="kodify-2.0",
-            description="Model for code-related queries"
-        )
-        long_context_model: str = Field(
-            default="cotype-preview-32k",
-            description="Model for long documents (>16k tokens)"
-        )
-        vlm_model: str = Field(
-            default="moondream:latest",
-            description="Vision model for image analysis (Ollama)"
-        )
+
         enable_auto_routing: bool = Field(
-            default=True,
-            description="Enable automatic model routing"
+            default=True, description="Enable automatic neural network model routing"
         )
         show_routing_badge: bool = Field(
-            default=True,
-            description="Show routing badge in response"
+            default=True, description="Show routing badge in response"
         )
-        long_context_threshold: int = Field(
-            default=16000,
-            description="Character count threshold for long context routing"
+        router_model: str = Field(
+            default="",
+            description="The model to use for routing decisions. Leave blank to use system default TASK_MODEL.",
+        )
+        research_tool_id: str = Field(
+            default="deep_research_tool",
+            description="ID инструмента для глубокого поиска",
         )
 
     def __init__(self):
         self.valves = self.Valves()
-        self._routing_reason = ""
+        self._routing_reason = "Выбор нейросети-маршрутизатора"
         self._routed_model = ""
 
-        # === Keyword patterns (Russian + English) ===
-        self.CODE_PATTERNS = re.compile(
-            r"(напиши код|напиши функци|напиши класс|исправь баг|дебагни|debug|"
-            r"refactor|рефакторинг|код на python|код на javascript|код на java|"
-            r"программ|алгоритм|скрипт|```|def\s+\w|class\s+\w|import\s+\w|"
-            r"function\s+\w|const\s+\w|let\s+\w|var\s+\w)",
-            re.IGNORECASE
-        )
-
-        self.IMAGE_GEN_PATTERNS = re.compile(
-            r"(нарисуй|сгенерируй\s*(картинк|изображени|фото)|"
-            r"создай\s*(картинк|изображени|иллюстраци)|"
-            r"generate\s*(image|picture|photo)|draw\s+)",
-            re.IGNORECASE
-        )
-
-        self.WEB_SEARCH_PATTERNS = re.compile(
-            r"(найди\s+в\s+интернете|загугли|поищи\s+в\s+сети|"
-            r"search\s+(the\s+)?web|google\s+|найди\s+информаци)",
-            re.IGNORECASE
-        )
-
     def _get_last_user_message(self, messages: list) -> str:
-        """Extract the last user message content as string."""
         for msg in reversed(messages):
             if msg.get("role") == "user":
                 content = msg.get("content", "")
                 if isinstance(content, str):
                     return content
                 elif isinstance(content, list):
-                    # Handle multimodal messages (text + images)
                     text_parts = []
                     for part in content:
                         if isinstance(part, dict) and part.get("type") == "text":
@@ -100,102 +61,253 @@ class Filter:
                     return " ".join(text_parts)
         return ""
 
-    def _has_images(self, messages: list) -> bool:
-        """Check if the last user message contains image attachments."""
-        for msg in reversed(messages):
+    def _has_modality(
+        self, messages: list, files: list, file_type_keywords: list, file_exts: tuple
+    ) -> bool:
+        # Check files array
+        for file_item in files:
+            t = file_item.get("type", "")
+            n = file_item.get("name", "").lower()
+            if any(k in t for k in file_type_keywords) or n.endswith(file_exts):
+                return True
+        # Check messages for attachments
+        for msg in messages:
             if msg.get("role") == "user":
+                if "image" in file_type_keywords and msg.get("images"):
+                    return True
                 content = msg.get("content", "")
                 if isinstance(content, list):
                     for part in content:
-                        if isinstance(part, dict) and part.get("type") == "image_url":
+                        if (
+                            part.get("type") == "image_url"
+                            and "image" in file_type_keywords
+                        ):
                             return True
-                # Check for image files in message metadata
-                if msg.get("images"):
-                    return True
-                break
+                for file_item in msg.get("files", []):
+                    if isinstance(file_item, dict):
+                        t = file_item.get("type", "")
+                        n = file_item.get("name", "").lower()
+                        if any(k in t for k in file_type_keywords) or n.endswith(
+                            file_exts
+                        ):
+                            return True
         return False
 
-    def _estimate_context_length(self, messages: list) -> int:
-        """Rough estimate of total context length in characters."""
-        total = 0
-        for msg in messages:
-            content = msg.get("content", "")
-            if isinstance(content, str):
-                total += len(content)
-            elif isinstance(content, list):
-                for part in content:
-                    if isinstance(part, dict) and part.get("type") == "text":
-                        total += len(part.get("text", ""))
-        return total
-
-    async def inlet(self, body: dict, __user__: dict = None, __event_emitter__=None) -> dict:
+    async def inlet(
+        self, body: dict, __user__: dict = None, __request__: Request = None
+    ) -> dict:
         """
-        INLET: Intercepts request BEFORE it reaches the LLM.
-        Analyzes the user's message and routes to the optimal model.
+        INLET: Analyzes the user's message and routes to the optimal model
+        based on the selected tier (Light/Pro) and modalities.
         """
-        if not self.valves.enable_auto_routing:
+        if not self.valves.enable_auto_routing or __request__ is None:
             return body
 
         messages = body.get("messages", [])
         if not messages:
             return body
 
-        last_message = self._get_last_user_message(messages)
+        # Avoid routing internal routing requests (if any)
+        if body.get("metadata", {}).get("task") == "MODEL_AUTOROUTING":
+            return body
+
+        # Не перероутим, если последнее сообщение — результат tool-вызова
+        # (OpenWebUI делает второй LLM-запрос с role="tool" для синтеза результатов тула)
+        last_msg_role = messages[-1].get("role", "") if messages else ""
+        if last_msg_role == "tool":
+            # Уже идёт синтез результатов тула — не трогаем модель, просто выходим
+            return body
+
         original_model = body.get("model", "")
 
-        # === Level 1: Heuristic routing (instant) ===
+        # Читаем режим авторутинга из HTTP-заголовка (X-MTS-Routing-Mode)
+        # Этот метод гарантированно доходит до фильтра независимо от Pydantic-валидации
+        autorouting_mode = __request__.headers.get("x-mts-routing-mode", "off").lower().strip()
+        if autorouting_mode not in ("off", "light", "pro"):
+            autorouting_mode = "off"
 
-        # 1. Image attachment → VLM (Moondream)
-        if self._has_images(messages):
-            self._routed_model = self.valves.vlm_model
-            self._routing_reason = "обнаружено изображение"
-            body["model"] = self._routed_model
+        log.info(f"[AutoRouter] mode={autorouting_mode}, model={original_model}")
+
+        LIGHT_MODELS = {
+            "text": "llama-3.1-8b-instruct",
+            "reasoning": "deepseek-r1-distill-qwen-32b",
+            "code": "qwen3-coder-480b-a35b",
+            "vision": "qwen2.5-vl",
+            "image": "image_gen_pipe.qwen-image-lightning",
+            "audio": "whisper-turbo-local",
+        }
+
+        PRO_MODELS = {
+            "text": "glm-4.6-357b",
+            "reasoning": "QwQ-32B",
+            "code": "qwen3-coder-480b-a35b",
+            "vision": "qwen2.5-vl-72b",
+            "image": "image_gen_pipe.qwen-image",
+            "audio": "whisper-medium",
+        }
+
+        model_tier = LIGHT_MODELS if autorouting_mode in ("light", "off") else PRO_MODELS
+
+        last_message = self._get_last_user_message(messages)
+        files = body.get("files", [])
+        last_message_lower = last_message.lower()
+
+        research_keywords = [
+            "исследуй", "найди в интернете", "поиск в интернете", "глубокий поиск", "погугли",
+            "search the web", "deep research", "find online", "internet search",
+            "сделай рисёрч", "сделай ресерч", "research"
+        ]
+        
+        is_research = any(keyword in last_message_lower for keyword in research_keywords)
+
+        # Если авторутинг выключен, используется только выбранная пользователем модель,
+        # за исключением случаев глубокого поиска (когда мы подключаем тул).
+        if autorouting_mode == "off" and not is_research:
+            self._routing_reason = "Автопереключение выключено"
             return body
 
-        # 2. Code-related keywords → kodify-2.0
-        if self.CODE_PATTERNS.search(last_message):
-            self._routed_model = self.valves.code_model
-            self._routing_reason = "обнаружен код/программирование"
-            body["model"] = self._routed_model
+        # Ключевые слова для определения интентов (РУ + EN)
+
+        # Уровень 1: явные фразы, однозначно указывающие на генерацию изображений
+        img_explicit_phrases = [
+            # Русский — с упоминанием результата
+            "нарисуй", "изобрази", "сделай картинку", "сделай рисунок",
+            "сгенерируй картинку", "сгенерировать картинку",
+            "сгенерируй изображение", "сгенерировать изображение",
+            "сгенерируй фото", "сгенерировать фото",
+            "создай изображение", "создать изображение",
+            "создай картинку", "создать картинку",
+            "создай иллюстрацию", "нарисуй картину",
+            "придумай изображение", "сделай арт",
+            # English — explicit
+            "generate image", "generate a picture", "generate a photo",
+            "create image", "create a picture", "create an image",
+            "make an image", "make a picture", "make a photo",
+            "draw me", "paint me", "render image", "render a picture",
+            "illustrate", "visualize", "generate art", "create art",
+        ]
+
+        # Уровень 2: только глаголы без уточнения — срабатывают когда нет
+        # признаков кода/текста/схемы.
+        # «сгенерируй котёнка», «нарисуй лес», «создай пейзаж» → image
+        img_generation_verbs = [
+            "сгенерируй", "сгенерировать", "нарисуй", "нарисовать",
+            "создай арт", "сделай арт",
+            "draw ", "paint ", "generate ", "create a ",
+        ]
+
+        # Слова-исключения: если в запросе есть они — это НЕ генерация изображений
+        img_exclusion_words = [
+            "код", "скрипт", "функцию", "программу", "файл", "текст",
+            "таблицу", "схему", "алгоритм", "базу данных", "запрос",
+            "code", "script", "function", "program", "file", "text",
+            "table", "schema", "algorithm", "database", "query",
+            "class", "module", "api", "docs",
+        ]
+        code_keywords = [
+            # Русский
+            "скрипт", "закодить", "напиши код", "ошибка в коде", "напиши функцию",
+            # Языки программирования (одинаковый код для RU+EN)
+            "python", "javascript", "html", "css", "c++", "java ",
+            "typescript", "golang", "rust", "kotlin", "swift", "php",
+            # English
+            "write code", "fix the code", "write a function", "write a script",
+            "debug", "refactor", "implement", "coding", "programming",
+            "write a class", "write a program",
+        ]
+        reasoning_keywords = [
+            # Русский
+            "подумай", "логика", "математика", "реши задачу", "докажи",
+            "головоломка", "посчитай", "уравнение", "как решить",
+            # English
+            "think step by step", "reason", "logic", "mathematics", "math",
+            "solve", "prove", "puzzle", "calculate", "equation", "how to solve",
+            "step by step", "chain of thought",
+        ]
+
+        routed_id = None
+        routing_reason = ""
+
+        # Строгая детерминированная логика переключения
+        has_exclusion = any(w in last_message_lower for w in img_exclusion_words)
+
+        is_image_request = (
+            # Уровень 1: явная фраза с результатом
+            any(phrase in last_message_lower for phrase in img_explicit_phrases)
+            or
+            # Уровень 2: глагол генерации + нет слов-исключений (код, файл, схема...)
+            (any(verb in last_message_lower for verb in img_generation_verbs) and not has_exclusion)
+        )
+
+        if is_research:
+            if "tool_ids" not in body:
+                body["tool_ids"] = []
+            if getattr(self.valves, "research_tool_id", "deep_research_tool") not in body["tool_ids"]:
+                body["tool_ids"].append(getattr(self.valves, "research_tool_id", "deep_research_tool"))
+
+            # Всегда переключаемся на текстовую модель для deep research.
+            # Image / vision / audio модели не должны получать этот запрос —
+            # иначе после синтеза результатов тула они пытаются сгенерировать изображение.
+            non_text_keywords = ["image", "whisper", "vl", "audio", "vision", "embedding", "gen_pipe"]
+            is_non_text_model = original_model and any(k in original_model.lower() for k in non_text_keywords)
+
+            if is_non_text_model:
+                routed_id = model_tier["text"]
+                routing_reason = "Запрос на глубокий поиск (Deep Research Tool + Смена с нетекстовой модели)"
+            else:
+                routed_id = original_model
+                routing_reason = "Запрос на глубокий поиск (Deep Research Tool + Текущая текстовая модель)"
+
+        elif autorouting_mode == "off":
+            self._routing_reason = "Автопереключение выключено"
             return body
 
-        # 3. Long context → cotype-preview-32k
-        context_length = self._estimate_context_length(messages)
-        if context_length > self.valves.long_context_threshold:
-            self._routed_model = self.valves.long_context_model
-            self._routing_reason = f"длинный контекст ({context_length // 1000}k символов)"
-            body["model"] = self._routed_model
-            return body
+        elif is_image_request:
+            routed_id = model_tier["image"]
+            routing_reason = "Запрос на генерацию изображения (Image Gen)"
+        elif self._has_modality(messages, files, ["image"], (".png", ".jpg", ".jpeg", ".gif", ".webp")):
+            routed_id = model_tier["vision"]
+            routing_reason = "Прикреплено изображение (Vision LLM)"
+        elif self._has_modality(messages, files, ["audio"], (".mp3", ".wav", ".ogg", ".m4a")):
+            routed_id = model_tier["audio"]
+            routing_reason = "Прикреплено аудио (Распознавание Речи STT)"
+        elif any(keyword in last_message_lower for keyword in code_keywords):
+            routed_id = model_tier["code"]
+            routing_reason = "Запрос на написание кода (Code LLM)"
+        elif any(keyword in last_message_lower for keyword in reasoning_keywords):
+            routed_id = model_tier["reasoning"]
+            routing_reason = "Сложный логический запрос (Reasoning LLM)"
+        else:
+            routed_id = model_tier["text"]
+            routing_reason = "Общий текстовый запрос (General LLM)"
 
-        # 4. Default → mws-gpt-alpha
-        self._routed_model = self.valves.default_model
-        self._routing_reason = "общий запрос"
-        body["model"] = self._routed_model
+        if "metadata" not in body:
+            body["metadata"] = {}
+            
+        body["metadata"]["_routed_model"] = routed_id
+        body["model"] = routed_id
+        
+        self._routing_reason = f"{routing_reason} • Режим: {autorouting_mode.upper()}"
         return body
 
-    async def outlet(self, body: dict, __user__: dict = None, __event_emitter__=None) -> dict:
+    async def outlet(
+        self, body: dict, __user__: dict = None, __event_emitter__=None
+    ) -> dict:
         """
-        OUTLET: Intercepts response AFTER the LLM generates it.
-        Injects a routing badge showing which model was used.
+        OUTLET: Injects a routing badge showing which model was used.
         """
-        if not self.valves.show_routing_badge or not self._routed_model:
+        routed_model = body.get("metadata", {}).get("_routed_model", "")
+        if not self.valves.show_routing_badge or not routed_model:
             return body
 
         messages = body.get("messages", [])
         if not messages:
             return body
 
-        # Find the last assistant message and prepend the badge
         for msg in reversed(messages):
             if msg.get("role") == "assistant":
                 content = msg.get("content", "")
                 if isinstance(content, str) and content:
-                    badge = f"\n\n---\n🤖 *{self._routed_model}* — {self._routing_reason}\n"
-                    msg["content"] = content + badge
-                break
-
-        # Reset for next request
-        self._routing_reason = ""
-        self._routed_model = ""
-
+                    msg["content"] += f"\n\n---\n🤖 *{routed_model}* — {self._routing_reason}\n"
+                    break 
         return body

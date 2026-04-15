@@ -51,7 +51,7 @@
 	export let closeOnOutsideClick = true;
 
 	let show = false;
-	let tab = '';
+	let tab = 'tools';
 
 	let tools = null;
 

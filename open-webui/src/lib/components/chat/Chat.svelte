@@ -1349,7 +1349,14 @@
 				...(m.usage ? { usage: m.usage } : {}),
 				...(m.sources ? { sources: m.sources } : {})
 			})),
-			filter_ids: selectedFilterIds.length > 0 ? selectedFilterIds : undefined,
+			filter_ids: (() => {
+				let ids = [...selectedFilterIds];
+				if ($settings?.memory ?? false) {
+					if (!ids.includes('context_inject_filter')) ids.push('context_inject_filter');
+					if (!ids.includes('memory_extract_filter')) ids.push('memory_extract_filter');
+				}
+				return ids.length > 0 ? ids : undefined;
+			})(),
 			model_item: $models.find((m) => m.id === modelId),
 			chat_id: _chatId,
 			session_id: $socket?.id,
@@ -2058,9 +2065,10 @@
 			}
 		}
 
-		if ($settings?.memory ?? false) {
-			features = { ...features, memory: true };
-		}
+		// Отключаем нативную память Open WebUI, так как используем собственные фильтры
+		// if ($settings?.memory ?? false) {
+		// 	features = { ...features, memory: true };
+		// }
 
 		return features;
 	};
@@ -2090,14 +2098,19 @@
 			return fileExists;
 		});
 
-		let files = structuredClone(chatFiles);
-		files.push(
-			...(userMessage?.files ?? []).filter(
-				(item) =>
-					['doc', 'text', 'note', 'chat', 'collection'].includes(item.type) ||
-					(item.type === 'file' && !(item?.content_type ?? '').startsWith('image/'))
-			)
+		const currentMessageFiles = (userMessage?.files ?? []).filter(
+			(item) =>
+				['doc', 'text', 'note', 'chat', 'collection'].includes(item.type) ||
+				(item.type === 'file' && !(item?.content_type ?? '').startsWith('image/'))
 		);
+
+		let files = [];
+		if (currentMessageFiles.length > 0) {
+			files = structuredClone(currentMessageFiles);
+		} else {
+			files = structuredClone(chatFiles);
+		}
+
 		// Remove duplicates
 		files = files.filter(
 			(item, index, array) =>
@@ -2244,7 +2257,14 @@
 
 				files: (files?.length ?? 0) > 0 ? files : undefined,
 
-				filter_ids: selectedFilterIds.length > 0 ? selectedFilterIds : undefined,
+				filter_ids: (() => {
+					let ids = [...selectedFilterIds];
+					if ($settings?.memory ?? false) {
+						if (!ids.includes('context_inject_filter')) ids.push('context_inject_filter');
+						if (!ids.includes('memory_extract_filter')) ids.push('memory_extract_filter');
+					}
+					return ids.length > 0 ? ids : undefined;
+				})(),
 				tool_ids: toolIds.length > 0 ? toolIds : undefined,
 				skill_ids: skillIds.length > 0 ? skillIds : undefined,
 				terminal_id: activeTerminalId ?? undefined,

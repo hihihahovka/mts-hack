@@ -1147,7 +1147,29 @@ async def generate_chat_completion(
         else:
             request_url = f'{request_url}/chat/completions?api-version={api_version}'
     else:
-        if is_responses:
+        is_image_model = False
+        original_stream = form_data.get('stream', False)
+        if 'model' in payload and 'qwen-image' in payload['model'].lower():
+            is_image_model = True
+            
+        if is_image_model:
+            prompt = ""
+            for msg in payload.get('messages', []):
+                if msg.get('role') == 'user':
+                    if isinstance(msg.get('content'), str):
+                        prompt += msg.get('content') + " "
+                    elif isinstance(msg.get('content'), list):
+                        for part in msg.get('content'):
+                            if part.get('type') == 'text':
+                                prompt += part.get('text') + " "
+            payload = {
+                "model": payload['model'],
+                "prompt": prompt.strip(),
+                "n": 1,
+                "size": "1024x1024"
+            }
+            request_url = f'{url}/images/generations'
+        elif is_responses:
             payload = convert_to_responses_payload(payload)
             request_url = f'{url}/responses'
         else:
@@ -1200,6 +1222,28 @@ async def generate_chat_completion(
                     return JSONResponse(status_code=r.status, content=response)
                 else:
                     return PlainTextResponse(status_code=r.status, content=response)
+
+            if is_image_model and isinstance(response, dict) and 'data' in response:
+                img_url = response['data'][0].get('url', '')
+                b64_json = response['data'][0].get('b64_json', '')
+                if b64_json:
+                    img_url = f"data:image/png;base64,{b64_json}"
+                    
+                if original_stream:
+                    async def fake_stream():
+                        chunk = {"id": "chatcmpl-image", "object": "chat.completion.chunk", "created": response.get("created", 0), "model": payload.get("model", "image"), "choices": [{"index": 0, "delta": {"role": "assistant", "content": f"![Generated Image]({img_url})"}}] }
+                        yield f"data: {json.dumps(chunk)}\n\n"
+                        yield "data: [DONE]\n\n"
+                    return StreamingResponse(fake_stream(), media_type="text/event-stream")
+                else:
+                    return {
+                        "id": "chatcmpl-image",
+                        "object": "chat.completion",
+                        "created": response.get("created", 0),
+                        "model": payload.get('model', 'image_generation'),
+                        "choices": [{"index": 0, "message": {"role": "assistant", "content": f"![Generated Image]({img_url})"}, "finish_reason": "stop"}],
+                        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+                    }
 
             # Convert Responses API result to simple format
             if is_responses and isinstance(response, dict):

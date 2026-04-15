@@ -38,6 +38,8 @@
 	import ChatPlus from '../icons/ChatPlus.svelte';
 	import ChatCheck from '../icons/ChatCheck.svelte';
 	import Knobs from '../icons/Knobs.svelte';
+	import Brain from '../icons/Brain.svelte';
+	import LocalMemoryModal from '../chat/Settings/Personalization/LocalMemoryModal.svelte';
 	import { WEBUI_API_BASE_URL } from '$lib/constants';
 
 	const i18n = getContext('i18n');
@@ -59,7 +61,10 @@
 
 	let showShareChatModal = false;
 	let showDownloadChatModal = false;
+	let showLocalMemoryModal = false;
 </script>
+
+<LocalMemoryModal bind:show={showLocalMemoryModal} chatId={$chatId} />
 
 <ShareChatModal bind:show={showShareChatModal} chatId={$chatId} />
 
@@ -112,7 +117,27 @@
 			"
 				>
 					{#if showModelSelector}
-						<ModelSelector bind:selectedModels showSetDefault={!shareEnabled} />
+						<div class="flex items-center gap-2 mt-1">
+							<div class="flex-1 min-w-0">
+								<ModelSelector bind:selectedModels showSetDefault={!shareEnabled}>
+									<div slot="actions" class="flex items-center pl-0.5">
+										{#if chat?.id && !$temporaryChatEnabled}
+												<Tooltip content={$i18n.t('Local Memory')}>
+													<button
+														class="p-0.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors"
+														on:click={() => {
+															showLocalMemoryModal = true;
+														}}
+														aria-label="Local Memory"
+													>
+														<Brain className="size-3.5" strokeWidth="1.5" />
+													</button>
+												</Tooltip>
+											{/if}
+										</div>
+									</ModelSelector>
+								</div>
+						</div>
 					{/if}
 				</div>
 
@@ -212,6 +237,8 @@
 						</Menu>
 					{/if}
 
+
+
 					{#if $user?.role === 'admin' || ($user?.permissions.chat?.controls ?? true)}
 						<Tooltip content={$i18n.t('Controls')}>
 							<button
@@ -254,6 +281,10 @@
 							</div>
 						</UserMenu>
 					{/if}
+					
+					<div class="ml-2 flex items-center pr-2">
+						<img src="/static/splash.png" class="h-6 object-contain" alt="MTS Logo" />
+					</div>
 				</div>
 			</div>
 		</div>

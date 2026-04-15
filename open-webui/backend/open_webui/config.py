@@ -2918,25 +2918,16 @@ CHUNK_OVERLAP = PersistentConfig(
 )
 
 DEFAULT_RAG_TEMPLATE = """### Task:
-Respond to the user query using the provided context, incorporating inline citations in the format [id] **only when the <source> tag includes an explicit id attribute** (e.g., <source id="1">).
+Respond to the user query using the provided context. When multiple documents are present in the context, carefully determine which document matches the user's intent. **Do not mix information from unrelated documents.** If the user asks about a specific topic, only use the document that focuses on that topic.
 
 ### Guidelines:
+- Identify the most relevant document based on the user's query and extract your answer ONLY from there. Do not summarize or reference other unrelated documents unless asked.
 - If you don't know the answer, clearly state that.
 - If uncertain, ask the user for clarification.
 - Respond in the same language as the user's query.
-- If the context is unreadable or of poor quality, inform the user and provide the best possible answer.
-- If the answer isn't present in the context but you possess the knowledge, explain this to the user and provide the answer using your own understanding.
-- **Only include inline citations using [id] (e.g., [1], [2]) when the <source> tag includes an id attribute.**
+- Incorporate inline citations in the format [id] **only when the <source> tag includes an explicit id attribute** (e.g., <source id="1">).
 - Do not cite if the <source> tag does not contain an id attribute.
 - Do not use XML tags in your response.
-- Ensure citations are concise and directly related to the information provided.
-
-### Example of Citation:
-If the user asks about a specific topic and the information is found in a source with a provided id attribute, the response should include the citation like in the following example:
-* "According to the study, the proposed method increases efficiency by 20% [1]."
-
-### Output:
-Provide a clear and direct response to the user's query, including inline citations in the format [id] only when the <source> tag with id attribute is present in the context.
 
 <context>
 {{CONTEXT}}

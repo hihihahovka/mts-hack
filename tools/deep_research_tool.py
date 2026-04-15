@@ -34,14 +34,61 @@ OpenWebUI Tool — Multi-step research agent с Map-Reduce pipeline.
 
 import httpx
 import asyncio
+import ipaddress
 import json
 import logging
 import os
 import re
+import socket
 from collections import Counter
 from typing import List, Dict, Any, Optional
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import urlsplit, urlunsplit, urlparse
 from pydantic import BaseModel, Field
+
+
+# ─── SSRF Protection ───────────────────────────────────────────────
+# Блокируем запросы к внутренним/приватным сетям и Docker-сервисам,
+# чтобы LLM не могла быть обманута в чтение метаданных облака,
+# внутренних БД или других контейнеров в docker-compose сети.
+# ────────────────────────────────────────────────────────────────────
+
+BLOCKED_HOSTNAMES = {
+    "localhost", "postgres", "searxng", "whisper-api", "open-webui",
+    "seed", "portainer", "dozzle", "redis", "mongo", "mysql",
+    "metadata.google.internal", "metadata.internal",
+}
+
+
+def is_safe_url(url: str) -> tuple[bool, str]:
+    """
+    Validates that a URL does not point to internal/private network resources.
+    Returns (is_safe, reason) tuple.
+    """
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return False, "Invalid URL"
+
+    if parsed.scheme not in ("http", "https"):
+        return False, f"Blocked scheme: {parsed.scheme}"
+
+    hostname = (parsed.hostname or "").strip().lower()
+    if not hostname:
+        return False, "Missing hostname"
+
+    if hostname in BLOCKED_HOSTNAMES:
+        return False, f"Blocked internal host: {hostname}"
+
+    try:
+        resolved_ips = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+        for family, _, _, _, sockaddr in resolved_ips:
+            ip = ipaddress.ip_address(sockaddr[0])
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+                return False, f"Address {ip} is in a private/reserved range"
+    except socket.gaierror:
+        pass
+
+    return True, ""
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # PROMPTS — English versions from research (GPT Researcher / STORM patterns)
@@ -94,34 +141,42 @@ Provide:
 If the source contains NO useful information on the topic, respond with
 "IRRELEVANT SOURCE" and nothing else."""
 
-STAGE_REDUCE_SYSTEM = """You are an expert research analyst. Write a structured report in Russian.
+STAGE_REDUCE_SYSTEM = """You are an expert research analyst. Write a highly detailed, structured report in Russian.
 
 RULES:
-- Organize by THEME, not by source
-- Use ONLY facts from the provided sources — do NOT invent data
-- Include specific names, numbers, dates from sources
-- If sources contradict each other, mention it
-- Keep the report concise: MAX 3-5 subsections in "Подробный анализ"
-- Do NOT repeat the same information in different sections
-- Do NOT add a "Sources" section
+- Organize by THEME, not by source.
+- Use ONLY facts from the provided sources — do NOT invent data.
+- Write in detail, actively citing facts, numbers, statistics, and dates from the sources. Do NOT hesitate to provide comprehensive explanations.
+- If sources contradict each other, mention it.
+- Do NOT repeat the same information in different sections.
+- Do NOT add a "Sources", "Источники", or "References" section at the end — citations are inline only.
 
-STRICT FORMAT (use ## headers exactly as shown):
+INLINE CITATION RULES:
+- After each specific fact, claim, or statistic, add an inline citation.
+- Format: [(N)](url) where N is the source number and url is the EXACT URL from the source reference list.
+- Place the citation immediately after the relevant word or fact, before any punctuation.
+- Multiple sources for one fact: [(1)](url1)[(2)](url2) — no space between them.
+- Example: "Температура выросла на 1.5°C за последние 10 лет[(3)](https://example.com/article)."
+- Do NOT use HTML tags or Unicode characters — use ONLY the plain [(N)](url) format.
+- Do NOT cite every sentence — only where the fact is specific and traceable to a source.
 
-## Краткий ответ
-2-3 sentences summarizing the key finding.
+STRICT FORMAT:
 
-## Подробный анализ
-3-5 subsections with ### headers. Each subsection: 2-4 paragraphs with facts.
+First, write a detailed introduction summarizing the context. Do NOT use any heading for the introduction (do not write "Введение" or any other title, just start with the text).
 
-## Ключевые выводы
-3-5 bullet points with specific, actionable takeaways."""
+Then, present the main topics. Use numbered lists for headers for each main topic (e.g., "1. Традиционные представления о браке в Китае", "2. Современные тенденции..."). Under each numbered topic, provide detailed elaboration and use sub-bullets if necessary.
+
+Finally, at the end, provide a summary of the entire report under the heading "## Саммари"."""
 
 STAGE_REDUCE_USER_TEMPLATE = """Topic: "{topic}"
+
+Source reference list (use these EXACT URLs in [N](url) inline citations):
+{source_refs}
 
 Source extracts ({n_sources} sources):
 {map_extractions}
 
-Write ONE report in Russian. MAX 5 subsections. Do NOT repeat information. No "Sources" section."""
+Write ONE detailed report in Russian with inline [N](url) citations after each fact. Use numbered headers for topics. No "Источники" section at the end."""
 
 STAGE_4_SYSTEM = STAGE_REDUCE_SYSTEM
 
@@ -130,7 +185,7 @@ STAGE_4_USER_TEMPLATE = """Topic: "{topic}"
 Collected materials:
 {combined_content}
 
-Write ONE report in Russian. MAX 5 subsections. Do NOT repeat information. No "Sources" section."""
+Write ONE detailed report in Russian. Use numbered headers for topics. Do NOT repeat information. No "Sources" section."""
 
 logger = logging.getLogger(__name__)
 
@@ -422,7 +477,9 @@ class Tools:
                     )
                     resp.raise_for_status()
                     data = resp.json()
-                    return data["choices"][0]["message"]["content"]
+                    content = data["choices"][0]["message"].get("content", "")
+                    content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
+                    return content
             except (httpx.ConnectTimeout, httpx.ConnectError, httpx.ReadError) as e:
                 last_error = e
                 if attempt >= self.valves.llm_retries:
@@ -441,7 +498,7 @@ class Tools:
         
         Args:
             stop_on_duplicate_header: Заголовок, при ВТОРОМ появлении которого стрим обрывается.
-                                     Пример: "## Краткий ответ"
+                                     Пример: "## Саммари"
             stop_on_headers: Список заголовков, при ПЕРВОМ появлении которых стрим обрывается.
                              Пример: ["## Источники", "## Sources"]
         """
@@ -478,6 +535,10 @@ class Tools:
         ui_buffer = ""
         stopped_early = False
 
+        # --- Filters for reasoning (<think> tags) ---
+        filter_buffer = ""
+        in_think = False
+
         # --- Helpers for stop detection ---
         dup_header_count = 0
         stop_on_headers = stop_on_headers or []
@@ -497,7 +558,7 @@ class Tools:
         def _check_stop(text: str) -> int:
             """Returns the trim position if we should stop, or -1 to continue."""
             
-            # Check duplicate header (e.g. second "Краткий ответ" in any format)
+            # Check duplicate header (e.g. second "Саммари" in any format)
             if stop_on_duplicate_header:
                 header_text = stop_on_duplicate_header.lstrip('#').lstrip('*').strip()
                 positions = _find_header(text, header_text)
@@ -511,14 +572,23 @@ class Tools:
                 if positions:
                     return max(0, positions[0])
             
-            # LOOP DETECTION: if model generates too many ### subsections, stop
-            subsection_count = len(re.findall(r'(?:^|\n)\s*###\s+', text))
-            if subsection_count > 7:
-                # Find the 7th ### and trim there
-                matches = list(re.finditer(r'(?:^|\n)\s*###\s+', text))
-                if len(matches) > 7:
-                    logger.warning(f"Loop detected: {subsection_count} subsections, trimming at 7th")
-                    return max(0, matches[7].start())
+            # NEW LOGIC: Stop if any new header appears AFTER the "Саммари" or "Итог" section
+            summary_pattern = re.compile(r'(?:^|\n)\s*(?:#{1,4}\s+|\*\*)(?:Саммари|Итог)(?:\*\*|:)?\s*(?:\n|$)', re.IGNORECASE)
+            summary_match = summary_pattern.search(text)
+            if summary_match:
+                summary_end_pos = summary_match.end()
+                next_header_pattern = re.compile(r'(?:^|\n)\s*(?:#{1,4}\s+|(?:\*\*(?:Источники|Sources|References|Ссылки|Дополнительно)[^\*]*\*\*))', re.IGNORECASE)
+                next_match = next_header_pattern.search(text, summary_end_pos)
+                if next_match:
+                    return max(0, next_match.start())
+            
+            # LOOP DETECTION: if model generates too many headers, stop
+            header_count = len(re.findall(r'(?:^|\n)\s*(?:#{1,3}\s+|\d+\.\s+)', text))
+            if header_count > 20:
+                matches = list(re.finditer(r'(?:^|\n)\s*(?:#{1,3}\s+|\d+\.\s+)', text))
+                if len(matches) > 20:
+                    logger.warning(f"Loop detected: {header_count} headers, trimming at 20th")
+                    return max(0, matches[20].start())
             
             return -1
 
@@ -549,11 +619,44 @@ class Tools:
                                     data = json.loads(data_line)
                                     delta = data["choices"][0]["delta"].get("content", "")
                                     if delta:
-                                        full_text += delta
-                                        chunk_count += 1
-                                        ui_buffer += delta
+                                        filter_buffer += delta
+                                        content_to_add = ""
+                                        
+                                        while filter_buffer:
+                                            if in_think:
+                                                end_idx = filter_buffer.find("</think>")
+                                                if end_idx != -1:
+                                                    in_think = False
+                                                    filter_buffer = filter_buffer[end_idx + 8:]
+                                                else:
+                                                    # prevent memory leak during long think blocks
+                                                    if len(filter_buffer) > 1000:
+                                                        filter_buffer = filter_buffer[-10:]
+                                                    break
+                                            else:
+                                                start_idx = filter_buffer.find("<think>")
+                                                if start_idx != -1:
+                                                    content_to_add += filter_buffer[:start_idx]
+                                                    in_think = True
+                                                    filter_buffer = filter_buffer[start_idx + 7:]
+                                                else:
+                                                    # check for partial <think> matches at the end
+                                                    part_idx = filter_buffer.rfind("<")
+                                                    if part_idx != -1 and "<think>".startswith(filter_buffer[part_idx:]):
+                                                        content_to_add += filter_buffer[:part_idx]
+                                                        filter_buffer = filter_buffer[part_idx:]
+                                                        break
+                                                    else:
+                                                        content_to_add += filter_buffer
+                                                        filter_buffer = ""
+                                                        break
+                                        
+                                        if content_to_add:
+                                            full_text += content_to_add
+                                            chunk_count += 1
+                                            ui_buffer += content_to_add
 
-                                        # --- Real-time stop check ---
+                                            # --- Real-time stop check ---
                                         trim_pos = _check_stop(full_text)
                                         if trim_pos >= 0:
                                             # Trim everything after the stop point
@@ -670,7 +773,14 @@ class Tools:
     async def _read_url(self, url: str, __event_emitter__=None) -> str:
         """
         Парсинг страницы: сначала Jina Reader, при ошибке — прямой скрейпинг.
+        Включает SSRF-проверку перед любыми HTTP-запросами.
         """
+        # ── SSRF Guard ──
+        safe, reason = is_safe_url(url)
+        if not safe:
+            logger.warning(f"SSRF blocked: {url} — {reason}")
+            return f"### Источник: {url}\n\n[🛡️ Запрос заблокирован (SSRF): {reason}]"
+
         if __event_emitter__:
             short_url = url[:60] + "..." if len(url) > 60 else url
             await self.emit_status(__event_emitter__, f"📖 Читаю: {short_url}", False)
@@ -1007,48 +1117,78 @@ class Tools:
                 False
             )
 
+            using_inline_citations = False
+            url_to_index = {}
+
             if not map_extractions:
                 # Fallback на монолитный если MAP ничего не дал
                 logger.warning("MAP phase produced no results — falling back to monolithic")
                 combined_content = "\n\n".join(read_results)
                 if len(combined_content) > self.valves.max_total_content:
                     combined_content = combined_content[:self.valves.max_total_content]
-                
+
                 sys_synth = STAGE_4_SYSTEM
                 prompt_synth = STAGE_4_USER_TEMPLATE.format(
                     topic=topic,
                     combined_content=combined_content
                 )
             else:
-                # REDUCE: синтез из MAP-экстрактов
+                # REDUCE: синтез из MAP-экстрактов с инлайн-ссылками
+
+                # Нумеруем источники по порядку их появления в экстрактах
+                url_to_index = {}
+                numbered_extractions = []
+                for extract in map_extractions:
+                    m_hdr = re.match(r"^### Источник: (.+?)\n", extract)
+                    if m_hdr:
+                        src_url = m_hdr.group(1).strip()
+                        if src_url not in url_to_index:
+                            url_to_index[src_url] = len(url_to_index) + 1
+                        idx = url_to_index[src_url]
+                        # Заменяем заголовок на нумерованный
+                        numbered_extract = f"[{idx}] {src_url}\n" + extract[m_hdr.end():]
+                        numbered_extractions.append(numbered_extract)
+                    else:
+                        numbered_extractions.append(extract)
+
+                # Список источников для промпта (numbered reference list)
+                source_refs = "\n".join(
+                    f"[{idx}]: {url}"
+                    for url, idx in sorted(url_to_index.items(), key=lambda x: x[1])
+                )
+
                 separator = "\n\n" + "─" * 40 + "\n\n"
-                map_combined = separator.join(map_extractions)
-                
+                map_combined = separator.join(numbered_extractions)
+
                 # Обрезка если нужно
                 if len(map_combined) > self.valves.max_total_content:
                     map_combined = map_combined[:self.valves.max_total_content]
                     map_combined += "\n\n...[часть экстрактов опущена]"
-                
+
+                using_inline_citations = True
                 sys_synth = STAGE_REDUCE_SYSTEM
                 prompt_synth = STAGE_REDUCE_USER_TEMPLATE.format(
                     topic=topic,
                     n_sources=n_relevant,
+                    source_refs=source_refs,
                     map_extractions=map_combined
                 )
         else:
             # ─── МОНОЛИТНЫЙ FALLBACK (старый режим) ───
-            
+            using_inline_citations = False
+            url_to_index = {}
+
             if self.valves.enable_context_compression:
                 separator = "\n\n" + "═" * 60 + "\n\n"
                 combined_content = separator.join(compressed_chunks)
             else:
                 separator = "\n\n" + "═" * 60 + "\n\n"
                 combined_content = separator.join(read_results)
-            
+
             if len(combined_content) > self.valves.max_total_content:
                 combined_content = combined_content[:self.valves.max_total_content]
                 combined_content += "\n\n...[часть материалов опущена из-за ограничений]"
-            
+
             sys_synth = STAGE_4_SYSTEM
             prompt_synth = STAGE_4_USER_TEMPLATE.format(
                 topic=topic,
@@ -1080,7 +1220,7 @@ class Tools:
                 sys_synth,
                 __event_emitter__,
                 timeout=self.valves.llm_timeout,
-                stop_on_duplicate_header="## Краткий ответ",
+                stop_on_duplicate_header="## Саммари",
                 stop_on_headers=["## Источники", "## Sources", "## References"],
             )
             
@@ -1098,31 +1238,109 @@ class Tools:
                     })
                 return ""
 
-            # --- Post-processing: убираем дубликаты и секции "Источники" ---
-            summary_header_re = re.compile(r"(?im)^\s*#{0,3}\s*Краткий ответ\s*$")
-            summary_matches = list(summary_header_re.finditer(final_report))
-            if len(summary_matches) >= 2:
-                final_report = final_report[:summary_matches[1].start()].rstrip()
+            # --- Post-processing: оставляем только текст самого саммари/итога, обрезаем следующий заголовок ---
+            summary_pattern = re.compile(r"(?im)(?:^|\n)\s*(?:#{1,4}\s+|\*\*)(?:Саммари|Итог)(?:\*\*|:)?\s*(?:\n|$)")
+            summary_match = summary_pattern.search(final_report)
+            if summary_match:
+                summary_end_pos = summary_match.end()
+                next_header_pattern = re.compile(r"(?im)(?:^|\n)\s*(?:#{1,4}\s+|(?:\*\*(?:Источники|Sources|References|Ссылки|Дополнительно)[^\*]*\*\*))")
+                next_match = next_header_pattern.search(final_report, summary_end_pos)
+                if next_match:
+                    final_report = final_report[:next_match.start()].rstrip()
+                
+                summary_matches = list(summary_pattern.finditer(final_report))
+                if len(summary_matches) >= 2:
+                    final_report = final_report[:summary_matches[1].start()].rstrip()
 
-            sources_header_re = re.compile(r"(?im)^\s*#{0,3}\s*Источники\s*$")
+            sources_header_re = re.compile(r"(?im)(?:^|\n)\s*(?:#{1,4}\s+|\*\*)?(?:Источники|Sources|References)(?:\*\*|:)?\s*(?:\n|$)")
             m_sources = sources_header_re.search(final_report)
             if m_sources:
                 final_report = final_report[:m_sources.start()].rstrip()
 
-            if source_lines and __event_emitter__:
+            # --- Post-processing: конвертируем URL-цитаты в кликабельные pill-сноски ---
+            def _find_title(url: str) -> str:
+                """Ищет заголовок по URL: точное совпадение → fuzzy по netloc → домен."""
+                # 1) Точное совпадение
+                title = url_to_title.get(url, "")
+                if title:
+                    return title
+
+                # 2) Fuzzy: ищем по совпадению netloc + начала пути
+                try:
+                    p = urlparse(url)
+                    target_netloc = p.netloc.lower()
+                    target_path = p.path.rstrip("/").lower()
+                    for stored_url, stored_title in url_to_title.items():
+                        sp = urlparse(stored_url)
+                        if sp.netloc.lower() == target_netloc:
+                            sp_path = sp.path.rstrip("/").lower()
+                            # Считаем совпадением если пути совпадают или один начинается с другого
+                            if sp_path == target_path or sp_path.startswith(target_path) or target_path.startswith(sp_path):
+                                return stored_title
+                except Exception:
+                    pass
+
+                return ""
+
+            def _make_footnote(url: str, url_to_fn: dict) -> str:
+                """Возвращает pill-ссылку [(N) Label](url) с заголовком или доменом."""
+                if url not in url_to_fn:
+                    url_to_fn[url] = len(url_to_fn) + 1
+                n = url_to_fn[url]
+
+                raw_title = _find_title(url)
+                if raw_title:
+                    # Убираем мусор типа [PDF], [D] и берём первые 4 слова
+                    clean = re.sub(r'\[.*?\]\s*', '', raw_title).strip()
+                    words = clean.split()[:4]
+                    label = " ".join(words)
+                    if len(label) > 30:
+                        label = label[:30].rstrip()
+                else:
+                    # Fallback — домен без www
+                    try:
+                        label = urlparse(url).netloc.replace("www.", "")
+                    except Exception:
+                        label = url[:25]
+
+                return f"[({n}) {label}]({url})"
+
+            url_to_fn: dict = {}
+
+            # 1) Паттерн: (https://...) — LLM вставил голый URL в скобках
+            def _replace_paren_url(m: re.Match) -> str:
+                url = m.group(1).rstrip(".,;:!?)")
+                return _make_footnote(url, url_to_fn)
+
+            final_report = re.sub(
+                r'\((https?://[^\s\)]{10,})\)',
+                _replace_paren_url,
+                final_report,
+            )
+
+            # 2) Паттерн: [N](url), [¹](url), [(N)](url) — уже markdown-ссылки, нормализуем в (N)
+            def _replace_md_citation(m: re.Match) -> str:
+                url = m.group(2).rstrip(".,;:!?")
+                return _make_footnote(url, url_to_fn)
+
+            final_report = re.sub(
+                r'\[(?:[⁰¹²³⁴⁵⁶⁷⁸⁹]+|\(?\d+\)?)\]\((https?://[^\)]{10,})\)',
+                _replace_md_citation,
+                final_report,
+            )
+
+            # Если инлайн-цитирование активно — источники уже вшиты в текст,
+            # список в конце не нужен. Иначе (монолитный путь) — выводим список.
+            if not using_inline_citations and source_lines and __event_emitter__:
                 links_md = "\n".join(source_lines)
                 sources_text = "\n\n## Источники\n" + links_md + "\n"
                 await __event_emitter__({
                     "type": "message",
                     "data": {"content": sources_text}
                 })
-            
-            await self.emit_status(
-                __event_emitter__,
-                "✅ Исследование завершено!",
-                True
-            )
-            return "Полный отчёт с источниками уже показан пользователю выше. Ответь ТОЛЬКО: 'Исследование завершено.' Ничего больше не добавляй."
+
+            await self.emit_status(__event_emitter__, "", True)
+            return ""
 
         except Exception as e:
             logger.error(f"Synthesis failed: {e}")

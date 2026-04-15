@@ -1,0 +1,7 @@
+# Ignore large unneeded directories
+open-webui/node_modules
+open-webui/.svelte-kit
+.git
+.gemini
+*.pyc
+__pycache__

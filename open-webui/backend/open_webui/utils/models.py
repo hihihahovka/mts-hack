@@ -457,6 +457,8 @@ def get_filtered_models(models, user, db=None):
                 # only admins can see unconfigured models.
                 filtered_models.append(model)
 
-        return filtered_models
+        output = filtered_models
     else:
-        return models
+        output = models
+
+    return output
