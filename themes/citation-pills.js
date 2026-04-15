@@ -78,11 +78,20 @@
     document.head.appendChild(style);
   }
 
-  // Карта: "N" (строка) → "https://..."
-  const urlMap = {};
+  // Глобальный реестр уникальных URL для присвоения номеров
+  const uniqueUrls = [];
 
-  // Регекс: ищет [N] или [12] — только цифры в квадратных скобках
-  const BRACKET_RE = /\[(\d+)\]/g;
+  function getCiteNumForUrl(href) {
+    if (!href) return '?';
+    // Нормализуем URL (убираем концевые слэши)
+    const norm = href.replace(/\/$/, '');
+    let idx = uniqueUrls.findIndex(u => u.replace(/\/$/, '') === norm);
+    if (idx === -1) {
+      uniqueUrls.push(href);
+      idx = uniqueUrls.length - 1;
+    }
+    return idx + 1;
+  }
 
   function getDomain(href) {
     try {
@@ -104,32 +113,47 @@
   }
 
   /**
-   * Читает все <span id="mts-cite-map" data-map="..."> в DOM
-   * и добавляет найденные пары N→URL в urlMap.
+   * Превращает существующий <a> тег в pill-бейдж, если это похоже на цитату.
    */
-  function loadCiteMapSpans(root) {
-    const el = root instanceof Document ? document : root;
-    const spans = (el.querySelectorAll
-      ? el
-      : document
-    ).querySelectorAll('span[id="mts-cite-map"][data-map], span[data-map]');
+  function processAnchorTags(root) {
+    const searchRoot = root instanceof Document ? document.body : root;
+    if (!searchRoot) return;
 
-    spans.forEach(span => {
-      if (span.dataset.mtsPillLoaded) return;
-      span.dataset.mtsPillLoaded = '1';
-      try {
-        const parsed = JSON.parse(span.getAttribute('data-map'));
-        Object.assign(urlMap, parsed);
-      } catch (e) {
-        console.warn('[MTS] Failed to parse data-map JSON:', e, span.getAttribute('data-map'));
+    const anchors = searchRoot.querySelectorAll('a:not(.mts-pill)');
+    anchors.forEach(a => {
+      // Игнорируем если уже обработан или внутри каких-то спец блоков
+      if (a.hasAttribute('data-mts-pill')) return;
+      if (a.closest('code, pre, .mts-pill')) return;
+
+      const text = a.textContent.trim();
+      const href = a.href;
+      if (!href || !href.startsWith('http')) return;
+
+      // Если текст ссылки это просто цифра (рендер от [1](url))
+      // Или если текст начинается с http (рендер от авто-ссылок)
+      // Или если текст пустой
+      const isNum = /^\d+$/.test(text);
+      const isUrl = text.startsWith('http');
+      
+      if (isNum || isUrl || text === '') {
+        const num = getCiteNumForUrl(href);
+        const label = getDomain(href);
+        
+        a.setAttribute('target', '_blank');
+        a.setAttribute('rel', 'noopener noreferrer');
+        a.setAttribute('title', href);
+        a.setAttribute('data-mts-pill', '1');
+        a.classList.add('mts-pill');
+        a.innerHTML = buildPillHTML(num, label);
       }
     });
   }
 
-  /** Заменяет [N] в текстовых узлах на pill-ссылки из urlMap */
-  function replaceBracketCitations(root) {
-    if (!Object.keys(urlMap).length) return;
+  // Регекс: ищет URL в скобках (https://...) или [https://...]
+  const RAW_URL_RE = /[\(\[]\s*(https?:\/\/[^\s\)\]]+)\s*[\)\]]/g;
 
+  /** Заменяет (url) и [url] в текстовых узлах на pill-ссылки */
+  function replaceTextNodeCitations(root) {
     const searchRoot = root instanceof Document ? document.body : root;
     if (!searchRoot) return;
 
@@ -145,10 +169,10 @@
           if (['a', 'code', 'pre', 'script', 'style'].includes(tag)) {
             return NodeFilter.FILTER_REJECT;
           }
-          // Принимаем только если есть [цифра]
-          BRACKET_RE.lastIndex = 0;
-          if (!BRACKET_RE.test(node.textContent)) return NodeFilter.FILTER_REJECT;
-          BRACKET_RE.lastIndex = 0;
+          // Принимаем только если есть URL в скобках
+          RAW_URL_RE.lastIndex = 0;
+          if (!RAW_URL_RE.test(node.textContent)) return NodeFilter.FILTER_REJECT;
+          RAW_URL_RE.lastIndex = 0;
           return NodeFilter.FILTER_ACCEPT;
         }
       }
@@ -160,19 +184,24 @@
 
     for (const textNode of nodesToReplace) {
       const text = textNode.textContent;
-      // Разбиваем на части: ["текст", "[1]", " продолжение", "[2]", ...]
-      const parts = text.split(/(\[\d+\])/);
+      
+      // Разбиваем текст по сырым URL в скобках
+      const parts = text.split(/([\(\[]\s*https?:\/\/[^\s\)\]]+\s*[\)\]])/i);
       if (parts.length <= 1) continue;
 
       let changed = false;
       const fragment = document.createDocumentFragment();
 
       for (const part of parts) {
-        const mPart = part.match(/^\[(\d+)\]$/);
-        if (mPart && urlMap[mPart[1]]) {
-          const num = mPart[1];
-          const href = urlMap[num];
+        const mPart = part.match(/^[\(\[]\s*(https?:\/\/[^\s\)\]]+)\s*[\)\]]$/i);
+        if (mPart) {
+          let href = mPart[1];
+          // Убираем возможные знаки пунктуации в конце URL
+          href = href.replace(/[.,;:!?]+$/, '');
+
+          const num = getCiteNumForUrl(href);
           const label = getDomain(href);
+          
           const a = document.createElement('a');
           a.href = href;
           a.setAttribute('target', '_blank');
@@ -194,51 +223,36 @@
     }
   }
 
-  /** Полный проход: сначала читаем карту, потом заменяем [N] */
+  /** Полный проход */
   function scan(root) {
-    try { loadCiteMapSpans(root); } catch (_) {}
-    try { replaceBracketCitations(root); } catch (_) {}
+    try { processAnchorTags(root); } catch (e) { console.error(e); }
+    try { replaceTextNodeCitations(root); } catch (e) { console.error(e); }
   }
 
   const obs = new MutationObserver(muts => {
-    let needTextScan = false;
+    let needScan = false;
 
     for (const m of muts) {
       for (const n of m.addedNodes) {
-        if (n.nodeType !== 1) continue; // только Element nodes
-
-        // Если это сам span с картой или он содержит такой span
-        const isMapSpan = (
-          n.tagName === 'SPAN' &&
-          (n.id === 'mts-cite-map' || n.hasAttribute('data-map'))
-        );
-        if (isMapSpan) {
-          try { loadCiteMapSpans(n.parentElement || document); } catch (_) {}
-          needTextScan = true;
+        if (n.nodeType === 1) { // Element
+          needScan = true;
+        } else if (n.nodeType === 3) { // Text Node
+          needScan = true;
         }
-
-        // Любой вложенный span с data-map
-        if (n.querySelectorAll) {
-          const inner = n.querySelectorAll('span[data-map]');
-          if (inner.length) {
-            try { loadCiteMapSpans(n); } catch (_) {}
-            needTextScan = true;
-          }
-        }
-
-        needTextScan = true;
       }
     }
 
-    if (needTextScan) {
-      try { replaceBracketCitations(document.body); } catch (_) {}
+    if (needScan) {
+      // Ищем ближайший родительский контейнер сообщений или body, чтобы сузить область
+      try { processAnchorTags(document.body); } catch (_) {}
+      try { replaceTextNodeCitations(document.body); } catch (_) {}
     }
   });
 
   function init() {
     scan(document);
-    obs.observe(document.body, { childList: true, subtree: true });
-    console.log('[MTS] Citation pills v4 ready ([N] square-bracket mode)');
+    obs.observe(document.body, { childList: true, subtree: true, characterData: true });
+    console.log('[MTS] Citation pills v5 ready (Dynamic URL mode)');
   }
 
   if (document.readyState === 'loading') {
