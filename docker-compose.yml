@@ -24,6 +24,7 @@ services:
       - AUDIO_STT_OPENAI_API_BASE_URL=http://whisper-api:9000/v1
       - AUDIO_STT_OPENAI_API_KEY=dummy
       - AUDIO_STT_MODEL=whisper-1
+      - AUDIO_STT_SUPPORTED_CONTENT_TYPES=audio/wav,audio/mpeg,audio/mp3,audio/ogg,audio/webm,audio/m4a,audio/mp4,audio/x-m4a,audio/flac,audio/*
       - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY:-supersecretkey123}
       - WEBUI_AUTH=${WEBUI_AUTH:-true}
       - ENABLE_SIGNUP=true
