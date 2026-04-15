@@ -281,6 +281,10 @@
 							</div>
 						</UserMenu>
 					{/if}
+					
+					<div class="ml-2 flex items-center pr-2">
+						<img src="/static/splash.png" class="h-6 object-contain" alt="MTS Logo" />
+					</div>
 				</div>
 			</div>
 		</div>
