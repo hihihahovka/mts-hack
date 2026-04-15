@@ -141,36 +141,32 @@ Provide:
 If the source contains NO useful information on the topic, respond with
 "IRRELEVANT SOURCE" and nothing else."""
 
-STAGE_REDUCE_SYSTEM = """You are an expert research analyst. Write a structured report in Russian.
+STAGE_REDUCE_SYSTEM = """You are an expert research analyst. Write a highly detailed, structured report in Russian.
 
 RULES:
-- Organize by THEME, not by source
-- Use ONLY facts from the provided sources — do NOT invent data
-- Include specific names, numbers, dates from sources
-- If sources contradict each other, mention it
-- Keep the report concise: MAX 3-5 subsections in "Подробный анализ"
-- Do NOT repeat the same information in different sections
-- Do NOT add a "Sources", "Источники", or "References" section at the end — citations are inline only
+- Organize by THEME, not by source.
+- Use ONLY facts from the provided sources — do NOT invent data.
+- Write in detail, actively citing facts, numbers, statistics, and dates from the sources. Do NOT hesitate to provide comprehensive explanations.
+- If sources contradict each other, mention it.
+- Do NOT repeat the same information in different sections.
+- Do NOT add a "Sources", "Источники", or "References" section at the end — citations are inline only.
 
 INLINE CITATION RULES:
-- After each specific fact, claim, or statistic, add an inline citation
-- Format: [(N)](url) where N is the source number and url is the EXACT URL from the source reference list
-- Place the citation immediately after the relevant word or fact, before the period
-- Multiple sources for one fact: [(1)](url1)[(2)](url2) — no space between them
+- After each specific fact, claim, or statistic, add an inline citation.
+- Format: [(N)](url) where N is the source number and url is the EXACT URL from the source reference list.
+- Place the citation immediately after the relevant word or fact, before any punctuation.
+- Multiple sources for one fact: [(1)](url1)[(2)](url2) — no space between them.
 - Example: "Температура выросла на 1.5°C за последние 10 лет[(3)](https://example.com/article)."
-- Do NOT use HTML tags or Unicode characters — use ONLY the plain [(N)](url) format
-- Do NOT cite every sentence — only where the fact is specific and traceable to a source
+- Do NOT use HTML tags or Unicode characters — use ONLY the plain [(N)](url) format.
+- Do NOT cite every sentence — only where the fact is specific and traceable to a source.
 
-STRICT FORMAT (use ## headers exactly as shown):
+STRICT FORMAT:
 
-## Краткий ответ
-2-3 sentences with inline citations.
+First, write a detailed introduction summarizing the context. Do NOT use any heading for the introduction (do not write "Введение" or any other title, just start with the text).
 
-## Подробный анализ
-3-5 subsections with ### headers. Each subsection: 2-4 paragraphs with inline [N](url) citations.
+Then, present the main topics. Use numbered lists for headers for each main topic (e.g., "1. Традиционные представления о браке в Китае", "2. Современные тенденции..."). Under each numbered topic, provide detailed elaboration and use sub-bullets if necessary.
 
-## Ключевые выводы
-3-5 bullet points with inline [N](url) citations."""
+Finally, at the end, provide a summary of the entire report under the heading "## Саммари"."""
 
 STAGE_REDUCE_USER_TEMPLATE = """Topic: "{topic}"
 
@@ -180,7 +176,7 @@ Source reference list (use these EXACT URLs in [N](url) inline citations):
 Source extracts ({n_sources} sources):
 {map_extractions}
 
-Write ONE report in Russian with inline [N](url) citations after each fact. MAX 5 subsections. No "Источники" section at the end."""
+Write ONE detailed report in Russian with inline [N](url) citations after each fact. Use numbered headers for topics. No "Источники" section at the end."""
 
 STAGE_4_SYSTEM = STAGE_REDUCE_SYSTEM
 
@@ -189,7 +185,7 @@ STAGE_4_USER_TEMPLATE = """Topic: "{topic}"
 Collected materials:
 {combined_content}
 
-Write ONE report in Russian. MAX 5 subsections. Do NOT repeat information. No "Sources" section."""
+Write ONE detailed report in Russian. Use numbered headers for topics. Do NOT repeat information. No "Sources" section."""
 
 logger = logging.getLogger(__name__)
 
@@ -500,7 +496,7 @@ class Tools:
         
         Args:
             stop_on_duplicate_header: Заголовок, при ВТОРОМ появлении которого стрим обрывается.
-                                     Пример: "## Краткий ответ"
+                                     Пример: "## Саммари"
             stop_on_headers: Список заголовков, при ПЕРВОМ появлении которых стрим обрывается.
                              Пример: ["## Источники", "## Sources"]
         """
@@ -556,7 +552,7 @@ class Tools:
         def _check_stop(text: str) -> int:
             """Returns the trim position if we should stop, or -1 to continue."""
             
-            # Check duplicate header (e.g. second "Краткий ответ" in any format)
+            # Check duplicate header (e.g. second "Саммари" in any format)
             if stop_on_duplicate_header:
                 header_text = stop_on_duplicate_header.lstrip('#').lstrip('*').strip()
                 positions = _find_header(text, header_text)
@@ -570,14 +566,13 @@ class Tools:
                 if positions:
                     return max(0, positions[0])
             
-            # LOOP DETECTION: if model generates too many ### subsections, stop
-            subsection_count = len(re.findall(r'(?:^|\n)\s*###\s+', text))
-            if subsection_count > 7:
-                # Find the 7th ### and trim there
-                matches = list(re.finditer(r'(?:^|\n)\s*###\s+', text))
-                if len(matches) > 7:
-                    logger.warning(f"Loop detected: {subsection_count} subsections, trimming at 7th")
-                    return max(0, matches[7].start())
+            # LOOP DETECTION: if model generates too many headers, stop
+            header_count = len(re.findall(r'(?:^|\n)\s*(?:#{1,3}\s+|\d+\.\s+)', text))
+            if header_count > 20:
+                matches = list(re.finditer(r'(?:^|\n)\s*(?:#{1,3}\s+|\d+\.\s+)', text))
+                if len(matches) > 20:
+                    logger.warning(f"Loop detected: {header_count} headers, trimming at 20th")
+                    return max(0, matches[20].start())
             
             return -1
 
@@ -1176,7 +1171,7 @@ class Tools:
                 sys_synth,
                 __event_emitter__,
                 timeout=self.valves.llm_timeout,
-                stop_on_duplicate_header="## Краткий ответ",
+                stop_on_duplicate_header="## Саммари",
                 stop_on_headers=["## Источники", "## Sources", "## References"],
             )
             
@@ -1195,7 +1190,7 @@ class Tools:
                 return ""
 
             # --- Post-processing: убираем дубликаты и секции "Источники" ---
-            summary_header_re = re.compile(r"(?im)^\s*#{0,3}\s*Краткий ответ\s*$")
+            summary_header_re = re.compile(r"(?im)^\s*#{0,3}\s*Саммари\s*$")
             summary_matches = list(summary_header_re.finditer(final_report))
             if len(summary_matches) >= 2:
                 final_report = final_report[:summary_matches[1].start()].rstrip()
