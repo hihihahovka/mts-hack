@@ -566,6 +566,16 @@ class Tools:
                 if positions:
                     return max(0, positions[0])
             
+            # NEW LOGIC: Stop if any new header appears AFTER the "Саммари" or "Итог" section
+            summary_pattern = re.compile(r'(?:^|\n)\s*(?:#{1,4}\s+|\*\*)(?:Саммари|Итог)(?:\*\*|:)?\s*(?:\n|$)', re.IGNORECASE)
+            summary_match = summary_pattern.search(text)
+            if summary_match:
+                summary_end_pos = summary_match.end()
+                next_header_pattern = re.compile(r'(?:^|\n)\s*(?:#{1,4}\s+|(?:\*\*(?:Источники|Sources|References|Ссылки|Дополнительно)[^\*]*\*\*))', re.IGNORECASE)
+                next_match = next_header_pattern.search(text, summary_end_pos)
+                if next_match:
+                    return max(0, next_match.start())
+            
             # LOOP DETECTION: if model generates too many headers, stop
             header_count = len(re.findall(r'(?:^|\n)\s*(?:#{1,3}\s+|\d+\.\s+)', text))
             if header_count > 20:
@@ -1189,13 +1199,21 @@ class Tools:
                     })
                 return ""
 
-            # --- Post-processing: убираем дубликаты и секции "Источники" ---
-            summary_header_re = re.compile(r"(?im)^\s*#{0,3}\s*Саммари\s*$")
-            summary_matches = list(summary_header_re.finditer(final_report))
-            if len(summary_matches) >= 2:
-                final_report = final_report[:summary_matches[1].start()].rstrip()
+            # --- Post-processing: оставляем только текст самого саммари/итога, обрезаем следующий заголовок ---
+            summary_pattern = re.compile(r"(?im)(?:^|\n)\s*(?:#{1,4}\s+|\*\*)(?:Саммари|Итог)(?:\*\*|:)?\s*(?:\n|$)")
+            summary_match = summary_pattern.search(final_report)
+            if summary_match:
+                summary_end_pos = summary_match.end()
+                next_header_pattern = re.compile(r"(?im)(?:^|\n)\s*(?:#{1,4}\s+|(?:\*\*(?:Источники|Sources|References|Ссылки|Дополнительно)[^\*]*\*\*))")
+                next_match = next_header_pattern.search(final_report, summary_end_pos)
+                if next_match:
+                    final_report = final_report[:next_match.start()].rstrip()
+                
+                summary_matches = list(summary_pattern.finditer(final_report))
+                if len(summary_matches) >= 2:
+                    final_report = final_report[:summary_matches[1].start()].rstrip()
 
-            sources_header_re = re.compile(r"(?im)^\s*#{0,3}\s*Источники\s*$")
+            sources_header_re = re.compile(r"(?im)(?:^|\n)\s*(?:#{1,4}\s+|\*\*)?(?:Источники|Sources|References)(?:\*\*|:)?\s*(?:\n|$)")
             m_sources = sources_header_re.search(final_report)
             if m_sources:
                 final_report = final_report[:m_sources.start()].rstrip()
