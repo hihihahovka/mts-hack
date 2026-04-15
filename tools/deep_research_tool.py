@@ -1261,20 +1261,30 @@ class Tools:
                 final_report,
             )
 
+            # 3) Очистка скобок вокруг цитат, если LLM их добавила
+            final_report = re.sub(
+                r'\(\s*(\[\d+\]\([^\)]+\))\s*\)',
+                r' \1',
+                final_report,
+            )
+
             # Если инлайн-цитирование активно — источники уже вшиты в текст,
             # список в конце не нужен. Иначе (монолитный путь) — выводим список.
-            if not using_inline_citations and source_lines and __event_emitter__:
+            if not using_inline_citations and source_lines:
                 links_md = "\n".join(source_lines)
-                sources_text = "\n\n## Источники\n" + links_md + "\n"
+                final_report += "\n\n## Источники\n" + links_md + "\n"
+
+            if __event_emitter__:
+                # Заменяем накопленный черновик кристально чистым отчётом без лишних скобок
                 await __event_emitter__({
-                    "type": "message",
-                    "data": {"content": sources_text}
+                    "type": "replace",
+                    "data": {"content": final_report}
                 })
 
             await self.emit_status(__event_emitter__, "", True)
-            # Возвращаем инструкцию заглушить LLM-синтез.
-            # Open WebUI передаёт это как tool result → LLM видит "ничего не добавляй" и молчит.
-            return "\n\nОтчёт полностью готов и уже отображён пользователю выше. НЕ добавляй никакого дополнительного текста, комментариев или резюме — ответ уже завершён."
+            # Возвращаем отчёт в контекст и строжайшую команду для основной LLM промолчать, 
+            # чтобы она не дописывала "Согласно контексту..."
+            return f"ОТЧЕТ ДЛЯ КОНТЕКСТА:\n{final_report}\n\n[СИСТЕМНАЯ ИНСТРУКЦИЯ]: ИССЛЕДОВАНИЕ ЗАВЕРШЕНО И УЖЕ ВЫВЕДЕНО. ТЕБЕ СТРОГО ЗАПРЕЩЕНО ПИСАТЬ ЛЮБЫЕ ВВОДНЫЕ СЛОВА ИЛИ ПОВТОРЯТЬ ОТЧЕТ. В КАЧЕСТВЕ ОТВЕТА ВЫВЕДИ ИСКЛЮЧИТЕЛЬНО ОДИН ПРОБЕЛ ' ' И БОЛЬШЕ НИЧЕГО."
 
         except Exception as e:
             logger.error(f"Synthesis failed: {e}")

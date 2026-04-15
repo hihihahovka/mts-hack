@@ -63,7 +63,9 @@
           const filteredTags = existing.filter(t => t.name !== 'Все' && t.name !== catTag);
 
           // Добавляем "Все" первым, чтобы он отображался первым в UI, затем тег категории
-          model.info.meta.tags = [{ name: 'Все' }, { name: catTag }, ...filteredTags];
+          const newTags = [{ name: 'Все' }, { name: catTag }, ...filteredTags];
+          model.info.meta.tags = newTags;
+          model.tags = newTags;
         });
 
         const newData = Array.isArray(data) ? list : { ...data, data: list };

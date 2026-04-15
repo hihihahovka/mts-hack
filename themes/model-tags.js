@@ -65,6 +65,7 @@
             // Добавляем новый
             tags.push({ name: catTag });
             model.info.meta.tags = tags;
+            model.tags = tags;
           });
 
           console.log('[MTS] Injected tags into models:', list.length);
