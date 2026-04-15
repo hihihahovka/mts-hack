@@ -34,18 +34,18 @@
         top: -1px !important;
         font-family: 'MTS Text', -apple-system, BlinkMacSystemFont, sans-serif !important;
         transition: background 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease !important;
-        background: rgba(255, 0, 50, 0.10) !important;
-        color: #FF0032 !important;
-        border: 1px solid rgba(255, 0, 50, 0.25) !important;
+        background: #FF0032 !important;
+        color: #FFFFFF !important;
+        border: none !important;
       }
       .dark a.mts-pill {
-        background: rgba(255, 0, 50, 0.12) !important;
-        color: #FF3358 !important;
-        border: 1px solid rgba(255, 0, 50, 0.28) !important;
+        background: #FF0032 !important;
+        color: #FFFFFF !important;
+        border: none !important;
       }
       a.mts-pill:hover {
-        background: rgba(255, 0, 50, 0.20) !important;
-        box-shadow: 0 1px 8px rgba(255, 0, 50, 0.30) !important;
+        background: #E6002D !important;
+        box-shadow: 0 2px 6px rgba(255, 0, 50, 0.40) !important;
         transform: translateY(-1px) !important;
       }
       a.mts-pill:active {
@@ -61,11 +61,11 @@
         font-size: 10px !important;
         font-weight: 700 !important;
         flex-shrink: 0 !important;
-        background: rgba(255, 0, 50, 0.20) !important;
-        color: inherit !important;
+        background: rgba(255, 255, 255, 0.25) !important;
+        color: #FFFFFF !important;
       }
       .dark a.mts-pill .mts-pill-num {
-        background: rgba(255, 0, 50, 0.28) !important;
+        background: rgba(255, 255, 255, 0.25) !important;
       }
       a.mts-pill .mts-pill-label {
         overflow: hidden !important;
