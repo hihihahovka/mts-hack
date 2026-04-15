@@ -477,7 +477,9 @@ class Tools:
                     )
                     resp.raise_for_status()
                     data = resp.json()
-                    return data["choices"][0]["message"]["content"]
+                    content = data["choices"][0]["message"].get("content", "")
+                    content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
+                    return content
             except (httpx.ConnectTimeout, httpx.ConnectError, httpx.ReadError) as e:
                 last_error = e
                 if attempt >= self.valves.llm_retries:
@@ -532,6 +534,10 @@ class Tools:
         chunk_count = 0
         ui_buffer = ""
         stopped_early = False
+
+        # --- Filters for reasoning (<think> tags) ---
+        filter_buffer = ""
+        in_think = False
 
         # --- Helpers for stop detection ---
         dup_header_count = 0
@@ -613,11 +619,44 @@ class Tools:
                                     data = json.loads(data_line)
                                     delta = data["choices"][0]["delta"].get("content", "")
                                     if delta:
-                                        full_text += delta
-                                        chunk_count += 1
-                                        ui_buffer += delta
+                                        filter_buffer += delta
+                                        content_to_add = ""
+                                        
+                                        while filter_buffer:
+                                            if in_think:
+                                                end_idx = filter_buffer.find("</think>")
+                                                if end_idx != -1:
+                                                    in_think = False
+                                                    filter_buffer = filter_buffer[end_idx + 8:]
+                                                else:
+                                                    # prevent memory leak during long think blocks
+                                                    if len(filter_buffer) > 1000:
+                                                        filter_buffer = filter_buffer[-10:]
+                                                    break
+                                            else:
+                                                start_idx = filter_buffer.find("<think>")
+                                                if start_idx != -1:
+                                                    content_to_add += filter_buffer[:start_idx]
+                                                    in_think = True
+                                                    filter_buffer = filter_buffer[start_idx + 7:]
+                                                else:
+                                                    # check for partial <think> matches at the end
+                                                    part_idx = filter_buffer.rfind("<")
+                                                    if part_idx != -1 and "<think>".startswith(filter_buffer[part_idx:]):
+                                                        content_to_add += filter_buffer[:part_idx]
+                                                        filter_buffer = filter_buffer[part_idx:]
+                                                        break
+                                                    else:
+                                                        content_to_add += filter_buffer
+                                                        filter_buffer = ""
+                                                        break
+                                        
+                                        if content_to_add:
+                                            full_text += content_to_add
+                                            chunk_count += 1
+                                            ui_buffer += content_to_add
 
-                                        # --- Real-time stop check ---
+                                            # --- Real-time stop check ---
                                         trim_pos = _check_stop(full_text)
                                         if trim_pos >= 0:
                                             # Trim everything after the stop point
